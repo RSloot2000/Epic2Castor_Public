@@ -200,22 +200,45 @@ Scripts invoked via `Rscript` auto-create writable user libraries and install mi
 
 Follow these steps to get Epic2Castor up and running:
 
-### Step 1: First Launch
+### Step 1: Install RStudio
 
-1. **Start the app** for the first time:
-   ```r
-   shiny::runApp(".")
-   # or open App.r in RStudio and click "Run App"
-   ```
+1. **Download and install R** (if not already installed):
+   - Visit [https://cran.r-project.org/](https://cran.r-project.org/)
+   - Download R ≥ 4.1 for your operating system
+   - Run the installer and follow the instructions
 
-2. The app will automatically:
-   - Create required directories (`config/`, `castor_meta/`, `db/`, etc.)
+2. **Download and install RStudio** (recommended):
+   - Visit [https://posit.co/download/rstudio-desktop/](https://posit.co/download/rstudio-desktop/)
+   - Download the free RStudio Desktop version
+   - Run the installer and follow the instructions
+
+### Step 2: Open the Project
+
+1. **Navigate to the project folder** (e.g., `Epic2Castor_Public`)
+2. **Double-click** the `VictorAukes_EpicToCastor.Rproj` file
+3. This will open the project in RStudio with the correct working directory
+
+### Step 3: First Launch
+
+1. **Open the main app file** in RStudio:
+   - In the **Files** pane (bottom-right), click on `App.r`
+   - Or use the file menu: **File** → **Open File** → select `App.r`
+
+2. **Run the app**:
+   - Click the **"Run App"** button at the top-right of the editor pane
+   - Or press **Ctrl+Shift+Enter** (Windows/Linux) / **Cmd+Shift+Return** (Mac)
+   - Or run in the R console: `shiny::runApp(".")`
+
+3. The app will automatically:
+   - Create required directories (`config/`, `db/`, `castor_meta/`, etc.)
    - Generate placeholder files for mappings
    - Create a template `APIConfig.json` file
    
-3. You'll see a **warning notification** about missing API credentials - this is expected!
+4. You'll see a **warning notification** about missing API credentials - this is expected!
 
-### Step 2: Configure Credentials
+**Note**: Required R packages will be automatically installed on first run. This may take a few minutes.
+
+### Step 4: Configure Credentials
 
 1. Click the **'Castor' menu** at the top of the app
 2. Select **'Update credentials'**
@@ -234,7 +257,7 @@ Follow these steps to get Epic2Castor up and running:
 - Copy the **Client ID** and generate a **Client Secret**
 - The **Study ID** is visible in your browser's URL bar
 
-### Step 3: Refresh Castor Metadata
+### Step 5: Refresh Castor Metadata
 
 1. Click **'Castor'** → **'Refresh metadata'**
 2. Wait for the progress dialog (this may take 30-60 seconds)
@@ -246,7 +269,7 @@ Follow these steps to get Epic2Castor up and running:
 
 **This step is crucial** - it populates the dropdown options you'll need for mapping!
 
-### Step 4: Load Input File
+### Step 6: Load Input File
 
 1. Navigate to the **'Elements' tab** in the mapping section
 2. Click the **file browser icon** (📁) at the top to open the file manager
@@ -259,7 +282,7 @@ Follow these steps to get Epic2Castor up and running:
 
 **You're now ready to create mappings!**
 
-### Step 5: Create Your First Mapping
+### Step 7: Create Your First Mapping
 
 1. In the **'Elements' tab**, click **'+ Add Row'**
 2. Fill in the columns using dropdowns:
@@ -285,7 +308,7 @@ Follow these steps to get Epic2Castor up and running:
 
 When you run the app for the first time, it will automatically:
 
-1. **Create required directories** (`config/`, `castor_meta/`, etc.)
+1. **Create required directories** (`config/`, `db/`, `castor_meta/`, etc.)
 2. **Generate a template `APIConfig.json`** with empty credential fields
 3. **Create placeholder metadata files** that will be populated once credentials are configured
 

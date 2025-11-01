@@ -57,6 +57,13 @@ tryCatch({
     cat("[Init] Created config directory\n")
   }
   
+  # Ensure db directory exists (required for SQLite databases)
+  db_dir <- epc_path("db_dir")
+  if (!dir.exists(db_dir)) {
+    dir.create(db_dir, recursive = TRUE)
+    cat("[Init] Created db directory\n")
+  }
+  
   # Ensure castor_meta directory exists
   castor_meta_dir <- epc_path("castor_meta_dir")
   if (!dir.exists(castor_meta_dir)) {
