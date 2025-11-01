@@ -97,7 +97,7 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 ├── .gitignore                          # Git ignore rules (excludes config/APIConfig.json!)
 ├── .Rhistory
 ├── .lintr
-├── VictorAukes_EpicToCastor.Rproj     # RStudio project file
+├── EpicToCastor.Rproj                 # RStudio project file
 ├── .github/                            # GitHub workflows and actions
 ├── .Rproj.user/                        # RStudio user settings
 ├── config/                             # 🔐 Configuration files (add to .gitignore!)
@@ -215,7 +215,7 @@ Follow these steps to get Epic2Castor up and running:
 ### Step 2: Open the Project
 
 1. **Navigate to the project folder** (e.g., `Epic2Castor_Public`)
-2. **Double-click** the `VictorAukes_EpicToCastor.Rproj` file
+2. **Double-click** the `EpicToCastor.Rproj` file
 3. This will open the project in RStudio with the correct working directory
 
 ### Step 3: First Launch
