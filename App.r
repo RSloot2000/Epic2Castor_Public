@@ -562,17 +562,19 @@ ui <- fluidPage(
   
   div(id = "app",
       tags$head(
+          # Favicon links
           tags$link(rel = "icon", type = "image/x-icon", href = "img/favicon.ico"),
           tags$link(rel = "icon", type = "image/png", sizes = "16x16", href = "img/favicon-16x16.png"),
           tags$link(rel = "icon", type = "image/png", sizes = "32x32", href = "img/favicon-32x32.png"),
           tags$link(rel = "apple-touch-icon", sizes = "180x180", href = "img/apple-touch-icon.png"),
           tags$link(rel = "manifest", href = "img/site.webmanifest"),
+          # Scripts and stylesheets
           tags$script(src = "/colResizable-1.6.js"),
           tags$link(rel = "stylesheet", href = "appCSS.css"),
           tags$link(rel = "stylesheet", href = "select2.min.css"),
-          tags$script(src = "select2.min.js"),                          
-      tags$script(src = paste0("appJS.js?v=", format(Sys.time(), "%Y%m%d%H%M%S"))),
-      tags$script(HTML("$(document).on('click', '.menu-link', function(){ var $dropdown = $(this).closest('.dropdown'); if ($dropdown.length) { setTimeout(function(){ $dropdown.removeClass('open'); }, 100); }});"))
+          tags$script(src = "select2.min.js"),
+          tags$script(src = paste0("appJS.js?v=", format(Sys.time(), "%Y%m%d%H%M%S"))),
+          tags$script(HTML("$(document).on('click', '.menu-link', function(){ var $dropdown = $(this).closest('.dropdown'); if ($dropdown.length) { setTimeout(function(){ $dropdown.removeClass('open'); }, 100); }});"))
       ),
       div(class = "fixed-header",
           div(class = "header-container",
@@ -587,57 +589,57 @@ ui <- fluidPage(
                           )
                       )
                   ),
-          div(class = "header-bottom",
-            div(class = "menu-bar",
-              div(class = "dropdown menu-group",
-                tags$button(
-                class = "btn btn-default dropdown-toggle menu-toggle",
-                type = "button",
-                `data-toggle` = "dropdown",
-                `aria-haspopup` = "true",
-                `aria-expanded` = "false",
-                "File ",
-                tags$span(class = "caret")
-                ),
-                tags$ul(class = "dropdown-menu",
-                    tags$li(actionLink("save", "Save changes", class = "menu-link")),
-                    tags$li(actionLink("undo", "Undo all changes", class = "menu-link")),
-                    tags$li(class = "divider"),
-                    tags$li(actionLink("select_epic_file", "Manage input files", class = "menu-link"))
-                )
-              ),
-              div(class = "dropdown menu-group",
-                tags$button(
-                class = "btn btn-default dropdown-toggle menu-toggle",
-                type = "button",
-                `data-toggle` = "dropdown",
-                `aria-haspopup` = "true",
-                `aria-expanded` = "false",
-                "Castor ",
-                tags$span(class = "caret")
-                ),
-                tags$ul(class = "dropdown-menu",
-                    tags$li(actionLink("update_credentials", "Update credentials", class = "menu-link")),
-                    tags$li(actionLink("refresh_castor", "Refresh metadata", class = "menu-link"))
-                )
-              ),
-              div(class = "dropdown menu-group",
-                tags$button(
-                class = "btn btn-default dropdown-toggle menu-toggle",
-                type = "button",
-                `data-toggle` = "dropdown",
-                `aria-haspopup` = "true",
-                `aria-expanded` = "false",
-                "Outputs ",
-                tags$span(class = "caret")
-                ),
-                tags$ul(class = "dropdown-menu",
-                    tags$li(actionLink("run_main_script", "Create CSVs", class = "menu-link")),
-                    tags$li(actionLink("run_upload_script", "Castor upload", class = "menu-link"))
-                )
-              )
-            )
-          )
+                  div(class = "header-bottom",
+                    div(class = "menu-bar",
+                      div(class = "dropdown menu-group",
+                        tags$button(
+                          class = "btn btn-default dropdown-toggle menu-toggle",
+                          type = "button",
+                          `data-toggle` = "dropdown",
+                          `aria-haspopup` = "true",
+                          `aria-expanded` = "false",
+                          "File ",
+                          tags$span(class = "caret")
+                        ),
+                        tags$ul(class = "dropdown-menu",
+                          tags$li(actionLink("save", "Save changes", class = "menu-link")),
+                          tags$li(actionLink("undo", "Undo all changes", class = "menu-link")),
+                          tags$li(class = "divider"),
+                          tags$li(actionLink("select_epic_file", "Manage input files", class = "menu-link"))
+                        )
+                      ),
+                      div(class = "dropdown menu-group",
+                        tags$button(
+                          class = "btn btn-default dropdown-toggle menu-toggle",
+                          type = "button",
+                          `data-toggle` = "dropdown",
+                          `aria-haspopup` = "true",
+                          `aria-expanded` = "false",
+                          "Castor ",
+                          tags$span(class = "caret")
+                        ),
+                        tags$ul(class = "dropdown-menu",
+                          tags$li(actionLink("update_credentials", "Update credentials", class = "menu-link")),
+                          tags$li(actionLink("refresh_castor", "Refresh metadata", class = "menu-link"))
+                        )
+                      ),
+                      div(class = "dropdown menu-group",
+                        tags$button(
+                          class = "btn btn-default dropdown-toggle menu-toggle",
+                          type = "button",
+                          `data-toggle` = "dropdown",
+                          `aria-haspopup` = "true",
+                          `aria-expanded` = "false",
+                          "Outputs ",
+                          tags$span(class = "caret")
+                        ),
+                        tags$ul(class = "dropdown-menu",
+                          tags$li(actionLink("run_main_script", "Create CSVs", class = "menu-link")),
+                          tags$li(actionLink("run_upload_script", "Castor upload", class = "menu-link"))
+                        )
+                      )
+                    )
+                  )
               ),
               div(
                 img(src = "img/logo.png", alt = "Logo", style = "height: 150px;")
@@ -716,7 +718,6 @@ server <- function(input, output, session) {
     
     api_config_path <- epc_path("config_api")
     has_credentials <- FALSE
-    
     if (file.exists(api_config_path)) {
       api_config <- tryCatch(jsonlite::fromJSON(api_config_path), error = function(e) NULL)
       if (!is.null(api_config) && 
