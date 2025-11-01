@@ -1,0 +1,11 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+config/APIConfig.json
+logs/
+input_data/
+output_data/
+castor_export/
+db/
+.lintr

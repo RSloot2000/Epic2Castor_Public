@@ -23,9 +23,12 @@ Funding:
 - Features
 - Project structure
 - Installation
+- Quick Start Guide
 - Configuration
 - Usage
   - Run the Shiny app
+  - Mapping workflow
+  - Auto-fill EPIC values
   - Run the ETL (baseline.r)
   - Generate Castor upload payloads
 - Data flow
@@ -46,12 +49,27 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 
 - **Shiny mapping editor**
   - Select, edit, filter, and validate mapping CSVs.
+  - Tabbed interface for Elements, Checkboxes, Radiobuttons, and Variables.
   - Dropdowns resolve valid values via `option_lists2.R`.
+  - Real-time validation with inline feedback.
   - Integrated credential editor and task runner.
+  - File manager with upload validation and automatic option refresh.
+  - Copy/paste functionality for elements with automatic propagation to related tables.
 
 - **Automated Castor metadata retrieval**
   - OAuth2 flow managed by [`scripts/CastorRetrieval.r`](scripts/CastorRetrieval.r).
   - Cached CSV/SQLite copies in [`castor_meta`](castor_meta) and [`db`](db).
+  - In-app refresh via **'Castor' → 'Refresh metadata'** menu.
+  - Automatic hash-based change detection to avoid unnecessary rebuilds.
+
+- **Intelligent auto-fill system**
+  - 7 matching strategies with confidence scoring (70-100%).
+  - Medical terminology dictionary (English→Dutch).
+  - DeepL API integration for high-quality translations.
+  - Reference dictionary built from approved mappings.
+  - Elimination logic for process-of-elimination scenarios.
+  - Interactive preview with filtering and bulk approval.
+  - Export suggestions to CSV for review.
 
 - **ETL pipeline**
   - Reads Epic exports (`.xlsx`/`.csv`), applies mappings, normalizes dates, and resolves radio/checkbox values.
@@ -178,7 +196,166 @@ Scripts invoked via `Rscript` auto-create writable user libraries and install mi
 
 ---
 
+## Quick Start Guide
+
+Follow these steps to get Epic2Castor up and running:
+
+### Step 1: First Launch
+
+1. **Start the app** for the first time:
+   ```r
+   shiny::runApp(".")
+   # or open App.r in RStudio and click "Run App"
+   ```
+
+2. The app will automatically:
+   - Create required directories (`config/`, `castor_meta/`, `db/`, etc.)
+   - Generate placeholder files for mappings
+   - Create a template `APIConfig.json` file
+   
+3. You'll see a **warning notification** about missing API credentials - this is expected!
+
+### Step 2: Configure Credentials
+
+1. Click the **'Castor' menu** at the top of the app
+2. Select **'Update credentials'**
+3. Fill in the credential form:
+   - **Client ID**: From Castor EDC Settings → API
+   - **Client Secret**: Generate one in Castor EDC Settings → API
+   - **Study ID**: Found in your study's URL (e.g., `ABC123DEF456`)
+   - **DeepL API Key** (optional): For improved medical term translations
+4. Click **'Save'**
+5. The app will confirm credentials are saved successfully
+
+**Where to find Castor credentials:**
+- Log in to [Castor EDC](https://data.castoredc.com)
+- Navigate to your study
+- Go to **Settings** → **API**
+- Copy the **Client ID** and generate a **Client Secret**
+- The **Study ID** is visible in your browser's URL bar
+
+### Step 3: Refresh Castor Metadata
+
+1. Click **'Castor'** → **'Refresh metadata'**
+2. Wait for the progress dialog (this may take 30-60 seconds)
+3. The app will download:
+   - Field options (all dropdown/radio/checkbox values)
+   - Study variable list (all fields in your study)
+   - Generate possible values for mappings
+4. A success notification will appear when complete
+
+**This step is crucial** - it populates the dropdown options you'll need for mapping!
+
+### Step 4: Load Input File
+
+1. Navigate to the **'Elements' tab** in the mapping section
+2. Click the **file browser icon** (📁) at the top to open the file manager
+3. In the modal dialog:
+   - Select **'Epic Export'** as file type
+   - Click **'Browse'** and select your Epic SmartForm export file (`.csv` or `.xlsx`)
+   - The app validates the file automatically
+   - Click **'Select & Close'** to load the file
+4. The dropdown options in your mapping tables will now be populated with values from your Epic export
+
+**You're now ready to create mappings!**
+
+### Step 5: Create Your First Mapping
+
+1. In the **'Elements' tab**, click **'+ Add Row'**
+2. Fill in the columns using dropdowns:
+   - **Element**: Select an Epic element from your export
+   - **Castor Name**: Select the corresponding Castor field
+3. The app automatically:
+   - Creates matching rows in the **Checkboxes** and **Radiobuttons** tabs (if applicable)
+   - Populates the **Castor Name** column in these tables
+   - Provides dropdown options for EPIC values
+
+4. Switch to **Checkboxes** or **Radiobuttons** tabs to map individual values:
+   - Each Castor option is pre-filled
+   - Select the matching **EPIC Value** from the dropdown
+   - Use **Auto-fill** (🪄 button) for intelligent suggestions
+
+5. Click **'Save'** to persist your mappings to the database
+
+---
+
 ## Configuration
+
+### First Time Setup
+
+When you run the app for the first time, it will automatically:
+
+1. **Create required directories** (`config/`, `castor_meta/`, etc.)
+2. **Generate a template `APIConfig.json`** with empty credential fields
+3. **Create placeholder metadata files** that will be populated once credentials are configured
+
+You'll see console messages like:
+```
+[Init] Checking required directories and files...
+[Init] Created APIConfig.json template at: config/APIConfig.json
+[Init] Please configure your Castor API credentials in this file.
+[Init] Initialization complete.
+[Startup] API credentials not configured yet; using existing Castor metadata files.
+```
+
+The app will start with limited functionality until you configure the API credentials (see next section).
+
+### API Configuration
+
+**Castor API credentials** are read from [`config/APIConfig.json`](config/APIConfig.json).
+
+#### Method 1: Using the App UI (Recommended)
+
+The easiest way to configure credentials is through the app interface:
+
+1. **Start the app** - it will show a warning notification about missing credentials
+2. **Click the 'Castor' menu** at the top of the app
+3. **Select 'Update credentials'**
+4. **Fill in your credentials** in the modal dialog:
+   - Client ID
+   - Client Secret
+   - Study ID
+   - DeepL API Key (optional, for better translations)
+5. **Click 'Save'**
+6. **Refresh metadata**: Click 'Castor' → 'Refresh metadata'
+7. **Done!** Your app is now fully configured
+
+The app includes helpful tooltips (click the ⓘ icons) explaining where to find each credential.
+
+#### Method 2: Manual Configuration
+
+Alternatively, you can edit the configuration file directly:
+
+1. After the first run, open [`config/APIConfig.json`](config/APIConfig.json)
+2. Add your credentials:
+
+```json
+{
+  "client_id": "YOUR-CLIENT-ID",
+  "client_secret": "YOUR-CLIENT-SECRET",
+  "study_id": "YOUR-STUDY-ID",
+  "deepl_api_key": "YOUR-DEEPL-KEY-OPTIONAL"
+}
+```
+
+3. Restart the app to apply changes
+
+**Where to find your credentials:**
+
+1. Log in to [Castor EDC](https://data.castoredc.com)
+2. Navigate to your study
+3. Go to **Settings** → **API**
+4. Copy the **Client ID** and generate a **Client Secret**
+5. The **Study ID** is in your study's URL
+
+⚠️ **IMPORTANT**: This file contains sensitive credentials and is excluded from version control via [`.gitignore`](.gitignore). Never commit actual credentials!
+
+#### Refreshing Metadata
+
+After configuring credentials:
+- Use **'Castor' → 'Refresh metadata'** in the app to update study data without restarting
+- The app will show a progress dialog and notify you when the refresh is complete
+- Metadata is automatically cached and refreshed only when needed
 
 ### Path Configuration
 
@@ -233,21 +410,9 @@ Central paths are managed via [`scripts/config.R`](scripts/config.R) which provi
 }
 ```
 
-⚠️ **IMPORTANT**: This file contains sensitive credentials and is excluded from version control via [`.gitignore`](.gitignore). Never commit actual credentials!
-
 ### Medical Terms Dictionary
 
 The autofill module uses [`config/medical_terms.json`](config/medical_terms.json) for English→Dutch medical term translations. Customize this file to match your study's terminology.
-
----
-
-Security tip: keep real credentials out of version control by adding the file to `.gitignore`.
-
-Environment variables:
-
-- `EPIC2CASTOR_LOGDIR`: custom log directory (default: `logs/<timestamp>`).
-- `EPIC2CASTOR_STATUS_FILE`: override status JSON path for UI polling.
-- `EPIC2CASTOR_AUTOINIT`: set to `0` to disable automatic logger initialization.
 
 ---
 
@@ -260,13 +425,96 @@ shiny::runApp(".")
 # or open App.r in RStudio and click "Run App"
 ```
 
-Capabilities:
+The Shiny app is the primary interface for Epic2Castor, providing:
 
-- Edit mapping CSVs with validation, dropdown options, undo/backups.
-- Update Castor API credentials via the UI.
-- Trigger ETL runs ([`scripts/baseline/baseline.r`](scripts/baseline/baseline.r)) and upload helpers (baseline/biobank).
-- Monitor logs and progress directly in the UI with real-time status updates.
-- Autofill EPIC values using intelligent matching against Castor metadata.
+- **Mapping editor** with tabbed interface (Elements, Checkboxes, Radiobuttons, Variables)
+- **Real-time validation** of column values and file structure
+- **Dropdown options** automatically populated from Epic exports and Castor metadata
+- **Auto-fill functionality** for intelligent EPIC value suggestions
+- **Credential management** via integrated UI
+- **ETL execution** and upload helpers with progress monitoring
+- **File management** with validation and upload capabilities
+
+### Mapping workflow
+
+#### Working with the Elements Table
+
+The **Elements** tab is the foundation of your mappings:
+
+1. **Add elements**: Click **'+ Add Row'** to create new mappings
+2. **Select values**: Use dropdowns to choose Epic elements and Castor fields
+3. **Automatic propagation**: When you add an element with a checkbox/radiobutton Castor field:
+   - Matching rows are automatically created in the Checkboxes or Radiobuttons tab
+   - The **Castor Name** column is pre-filled
+   - Castor option values are pre-populated
+
+4. **Tab organization**: Elements can be organized across multiple tabs for complex studies
+5. **Copy/Paste**: Select rows and use the copy (📋) and paste (📄) buttons to duplicate mappings
+
+#### Working with Checkboxes and Radiobuttons Tables
+
+After creating elements with checkbox/radiobutton fields:
+
+1. **Switch to the appropriate tab** (Checkboxes or Radiobuttons)
+2. **Review auto-generated rows**: Each Castor option appears as a separate row
+3. **Map EPIC values**: Select the matching Epic value from the **EPIC Value** dropdown
+4. **Use Auto-fill**: Click the magic wand (🪄) button for intelligent suggestions (see below)
+
+#### File Management
+
+The file browser (📁 icon) provides:
+
+- **Upload validation**: Real-time column checking before upload
+- **Multi-source support**: Epic exports, biobank data, follow-up files
+- **File selection**: Choose existing files or upload new ones
+- **Automatic option reload**: After uploading an Epic export, dropdown options refresh automatically
+
+### Auto-fill EPIC values
+
+The **Auto-fill** feature (available in Checkboxes and Radiobuttons tabs) uses intelligent matching to suggest EPIC values for Castor options:
+
+#### How to use Auto-fill
+
+1. Ensure you have:
+   - Created elements with Castor checkboxes/radiobuttons
+   - Loaded an Epic export file
+   - At least some empty EPIC values to fill
+
+2. Click the **magic wand button (🪄)** in the Checkboxes or Radiobuttons tab
+
+3. Configure options in the modal:
+   - **Tab**: Select which tab to process (or "All")
+   - **Review existing**: Check to re-process already filled values
+   - **Element filter**: Focus on specific elements
+
+4. Review suggestions:
+   - **High confidence** (≥95%): Green highlighting
+   - **Medium confidence** (≥85%): Yellow highlighting
+   - **Low confidence** (≥70%): Orange highlighting
+   - Check/uncheck individual suggestions
+   - Use filters to show only specific confidence levels or elements
+
+5. Click **'Apply Selected'** to fill the values
+
+#### Matching strategies
+
+Auto-fill uses 7 intelligent strategies (in order of precedence):
+
+1. **Exact match**: EPIC value exactly matches Castor value
+2. **Reference dictionary**: Previously approved mappings
+3. **Elimination**: Process of elimination when only one option remains
+4. **Medical terms**: Dictionary-based medical terminology matching
+5. **DeepL translation**: API-based English→Dutch translation (if configured)
+6. **Normalized match**: Case-insensitive, punctuation-normalized matching
+7. **Partial match**: Substring and fuzzy string matching
+
+#### Best practices
+
+- Fill high-confidence suggestions first (green items)
+- Review medium-confidence suggestions carefully (yellow items)
+- Manually check low-confidence suggestions (orange items)
+- Use **'Export CSV'** to save suggestions for review
+- Approved auto-fills build a reference dictionary for future runs
 
 ### Run the ETL (baseline.r)
 
@@ -332,10 +580,14 @@ Optional upload scripts ([`baselineExport.r`](scripts/baseline/baselineExport.r)
 - **Package installation issues**: ensure the R user library is writable; scripts auto-create `R/win-library/<version>` when needed.
 - **Castor API 401/403**: verify credentials in [`config/APIConfig.json`](config/APIConfig.json) and client permissions for the study.
 - **Missing input files**: filenames must match `epic_tabel` values in [`mapping/variabelen.csv`](mapping/variabelen.csv); expected locations under [`input_data`](input_data).
-- **Unexpected option values**: refresh Castor metadata ([`CastorRetrieval.r`](scripts/CastorRetrieval.r)) and validate mapping CSV entries.
+- **Unexpected option values**: refresh Castor metadata via **'Castor' → 'Refresh metadata'** in the app UI and validate mapping CSV entries.
 - **Upload failures**: inspect JSON payloads in [`castor_export`](castor_export) and [`Datastructure.json`](castor_meta/Datastructure.json) for server responses.
-- **Configuration not found**: ensure [`config/APIConfig.json`](config/APIConfig.json) exists and contains valid credentials. Legacy location `scripts/APIConfig.json` is deprecated.
+- **Configuration not found**: ensure [`config/APIConfig.json`](config/APIConfig.json) exists and contains valid credentials. Use the app's **'Castor' → 'Update credentials'** menu for easy configuration.
 - **Autofill issues**: check [`config/medical_terms.json`](config/medical_terms.json) for missing translations and review confidence thresholds in [`scripts/autofill.r`](scripts/autofill.r).
+- **Empty dropdowns after file upload**: Ensure you've completed the Quick Start Guide steps 1-4 (credentials → refresh metadata → load file).
+- **Checkboxes/Radiobuttons not auto-populating**: Make sure the Castor field type is correctly set as checkbox/radiobutton in Castor EDC. Refresh metadata to update field types.
+- **Hash file errors**: The app uses MD5 hashing to detect changes. If you see unexpected rebuild messages, check that CSV files aren't being modified by external processes.
+- **Locale warnings**: The app uses Dutch locale settings (`,` for decimals, `.` for thousands). If you see locale warnings, ensure your CSV files match this format.
 
 ---
 

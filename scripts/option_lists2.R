@@ -20,7 +20,31 @@ dir_mapping_possible_values <- if (!is.null(paths$mapping_possible_values_dir)) 
 
 force_option_reload <- isTRUE(getOption("epic2castor.force_option_reload", FALSE))
 cache <- getOption("epic2castor.option_cache", NULL)
-cached_loaded <- !force_option_reload && !is.null(cache)
+cached_loaded <- !force_option_reload && !is.null(cache) && 
+  !is.null(cache$option_data) && !is.null(cache$checkBoxesValues)
+
+# Initialize variables with safe defaults
+option_data <- NULL
+checkBoxesValues <- data.frame(kolom = character(0), toevoeging = character(0))
+radioButtonOptionValues <- data.frame(kolom = character(0), waarde = character(0))
+checkboxes <- character(0)
+radiobuttons <- character(0)
+metaRadioButtons <- data.frame(
+  `Option Group Name` = character(0),
+  `Option Name` = character(0),
+  `Option Value` = integer(0),
+  `Option Group Id` = character(0),
+  check.names = FALSE
+)
+metaVariables <- data.frame(
+  `Form Name` = character(0),
+  `Form Order` = integer(0),
+  `Field Option Group` = character(0),
+  `Field Variable Name` = character(0),
+  `Field Type` = character(0),
+  check.names = FALSE
+)
+
 if (cached_loaded) {
   option_data <- cache$option_data
   checkBoxesValues <- cache$checkBoxesValues

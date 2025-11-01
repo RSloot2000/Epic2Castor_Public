@@ -45,7 +45,115 @@ source(logger_path)
 config_script_path <- if (!is.null(paths$config_script)) paths$config_script else file.path(paths$scripts_dir, "config.R")
 source(config_script_path)
 
+## Initialize: ensure required directories and config files exist
+files_created <- FALSE
+tryCatch({
+  cat("[Init] Checking required directories and files...\n")
+  
+  # Ensure config directory exists
+  config_dir <- "config"
+  if (!dir.exists(config_dir)) {
+    dir.create(config_dir, recursive = TRUE)
+    cat("[Init] Created config directory\n")
+  }
+  
+  # Ensure castor_meta directory exists
+  castor_meta_dir <- epc_path("castor_meta_dir")
+  if (!dir.exists(castor_meta_dir)) {
+    dir.create(castor_meta_dir, recursive = TRUE)
+    cat("[Init] Created castor_meta directory\n")
+  }
+  
+  # Ensure possibleValues directory exists
+  pv_dir <- epc_path("mapping_possible_values_dir")
+  if (!dir.exists(pv_dir)) {
+    dir.create(pv_dir, recursive = TRUE)
+    cat("[Init] Created mapping/possibleValues directory\n")
+  }
+  
+  # Create APIConfig.json template if it doesn't exist
+  api_config_path <- epc_path("config_api")
+  if (!file.exists(api_config_path)) {
+    api_template <- list(
+      client_id = "",
+      client_secret = "",
+      study_id = ""
+    )
+    jsonlite::write_json(api_template, api_config_path, pretty = TRUE, auto_unbox = TRUE)
+    cat("[Init] Created APIConfig.json template at: ", api_config_path, "\n", sep = "")
+    cat("[Init] Please configure your Castor API credentials in this file.\n")
+  }
+  
+  # Create placeholder metadata files with proper CSV structure if they don't exist
+  fo <- epc_path("castor_field_options_file")
+  sv <- epc_path("castor_study_variablelist_file")
+  
+  if (!file.exists(fo)) {
+    # Create valid but empty CSV with expected headers
+    fo_headers <- "Option Group Name;Option Name;Option Value;Option Group Id"
+    writeLines(fo_headers, fo)
+    cat("[Init] Created placeholder field_options.csv with proper structure\n")
+  }
+  
+  if (!file.exists(sv)) {
+    # Create valid but empty CSV with expected headers
+    sv_headers <- "Form Name;Form Order;Field Option Group;Field Variable Name;Field Type"
+    writeLines(sv_headers, sv)
+    cat("[Init] Created placeholder study_variablelist.csv with proper structure\n")
+  }
+  
+  # Create placeholder pv_elements.csv if possibleValues directory exists
+  pv_dir <- epc_path("mapping_possible_values_dir")
+  if (dir.exists(pv_dir)) {
+    pv_elements_file <- file.path(pv_dir, "pv_elements.csv")
+    if (!file.exists(pv_elements_file)) {
+      # Create minimal structure - this will be populated during autofill
+      pv_headers <- "epic_kolom;epic_waarde;castor_kolom;castor_waarde"
+      writeLines(pv_headers, pv_elements_file)
+      cat("[Init] Created placeholder pv_elements.csv\n")
+      files_created <- TRUE
+    }
+  }
+  
+  # Create placeholder mapping files in mapping directory
+  mapping_dir <- epc_path("mapping_dir")
+  if (dir.exists(mapping_dir)) {
+    # Create elements.csv
+    elements_file <- file.path(mapping_dir, "elements.csv")
+    if (!file.exists(elements_file)) {
+      elements_headers <- "Element;castor_kolom"
+      writeLines(elements_headers, elements_file)
+      cat("[Init] Created placeholder elements.csv\n")
+      files_created <- TRUE
+    }
+    
+    # Create waarde_checkboxes.csv
+    checkboxes_file <- file.path(mapping_dir, "waarde_checkboxes.csv")
+    if (!file.exists(checkboxes_file)) {
+      checkboxes_headers <- "Element;waarde;kolom_toevoeging"
+      writeLines(checkboxes_headers, checkboxes_file)
+      cat("[Init] Created placeholder waarde_checkboxes.csv\n")
+      files_created <- TRUE
+    }
+    
+    # Create waarde_radiobuttons.csv
+    radiobuttons_file <- file.path(mapping_dir, "waarde_radiobuttons.csv")
+    if (!file.exists(radiobuttons_file)) {
+      radiobuttons_headers <- "Element;waarde;castor_waarde"
+      writeLines(radiobuttons_headers, radiobuttons_file)
+      cat("[Init] Created placeholder waarde_radiobuttons.csv\n")
+      files_created <- TRUE
+    }
+  }
+  
+  cat("[Init] Initialization complete.\n")
+  flush.console()
+}, error = function(e) {
+  warning(paste("[Init] Warning during initialization:", conditionMessage(e)))
+})
+
 ## Startup: fetch Castor metadata via separate Rscript and validate outputs
+castor_meta_retrieved <- FALSE
 tryCatch({
   start_time <- Sys.time()
   castor_script <- epc_path("castor_retrieval_script")
@@ -65,10 +173,32 @@ tryCatch({
     ages <- difftime(Sys.time(), info$mtime, units = "mins")
     ages_ok <- all(ages <= max_age_mins)
   }
+  
+  # Check if API credentials are configured
+  api_config_path <- epc_path("config_api")
+  has_credentials <- FALSE
+  if (file.exists(api_config_path)) {
+    api_config <- tryCatch(jsonlite::fromJSON(api_config_path), error = function(e) NULL)
+    if (!is.null(api_config) && 
+        !is.null(api_config$client_id) && nchar(trimws(api_config$client_id)) > 0 &&
+        !is.null(api_config$client_secret) && nchar(trimws(api_config$client_secret)) > 0 &&
+        !is.null(api_config$study_id) && nchar(trimws(api_config$study_id)) > 0) {
+      has_credentials <- TRUE
+    }
+  }
+  
   skip_retrieval <- !force_refresh && all(file.exists(c(fo, sv))) && isTRUE(ages_ok)
 
   if (skip_retrieval) {
     cat("[Startup] Castor metadata recent (<= ", max_age_mins, " min); skipping retrieval.\n", sep = "")
+  } else if (!has_credentials) {
+    if (file.exists(fo) && file.exists(sv)) {
+      cat("[Startup] API credentials not configured yet; using existing Castor metadata files.\n", sep = "")
+      cat("[Startup] Please configure API credentials in the app to refresh metadata.\n", sep = "")
+    } else {
+      cat("[Startup] API credentials not configured and no cached metadata found.\n", sep = "")
+      cat("[Startup] The app will start, but Castor functionality will be limited until credentials are configured.\n", sep = "")
+    }
   } else {
     cat("[Startup] Retrieving Castor metadata via: ", castor_script, "\n", sep = "")
     # Prepare a done-flag (unique temp path) and pass it to the child process via ENV
@@ -108,12 +238,29 @@ tryCatch({
           stop("Castor retrieval returned without done-flag and outputs are not recent. Check logs for details.")
         }
       }
+      # Mark that metadata was successfully retrieved
+      castor_meta_retrieved <- TRUE
     }
     cat("[Startup] Castor metadata retrieval completed.\n")
   }
   flush.console()
 }, error = function(e) {
-  stop(paste("Castor metadata retrieval failed during startup:", conditionMessage(e)))
+  # Check if this is a credentials-related error - if so, warn but don't stop
+  error_msg <- conditionMessage(e)
+  if (grepl("Castor retrieval failed \\(exit 5\\)", error_msg, ignore.case = TRUE)) {
+    cat("[Startup] Warning: Castor metadata retrieval skipped (credentials may not be configured).\n", sep = "")
+    cat("[Startup] The app will start with limited functionality. Configure API credentials to enable full features.\n", sep = "")
+  } else {
+    # For other errors, try to continue if cached files exist
+    fo <- epc_path("castor_field_options_file")
+    sv <- epc_path("castor_study_variablelist_file")
+    if (file.exists(fo) && file.exists(sv)) {
+      cat("[Startup] Warning: Castor metadata retrieval failed, but cached files exist. Continuing with cached data.\n", sep = "")
+      cat("[Startup] Error details: ", error_msg, "\n", sep = "")
+    } else {
+      stop(paste("Castor metadata retrieval failed during startup:", error_msg))
+    }
+  }
 })
 
 ## Load database helper functions
@@ -157,7 +304,15 @@ validate_castor_outputs <- function(done_flag, start_time, fo, sv) {
 }
 
 cat(sprintf("[Startup] (%s) Checking/building mapping database...\n", format(Sys.time(), "%H:%M:%S"))); flush.console()
-if (!isTRUE(getOption("epic2castor.mapping_built", FALSE))) {
+if (!isTRUE(getOption("epic2castor.mapping_built", FALSE)) || files_created) {
+  if (files_created) {
+    cat("[Startup] New mapping files were created; forcing database rebuild.\n")
+    # Force rebuild by removing hash file
+    hash_file <- paste0(epc_path("mapping_db"), ".hash")
+    if (file.exists(hash_file)) {
+      try(file.remove(hash_file), silent = TRUE)
+    }
+  }
   check_and_build(
     dataFolder = epc_path("mapping_dir"),
     dbPath     = epc_path("mapping_db"),
@@ -173,7 +328,15 @@ if (!isTRUE(getOption("epic2castor.mapping_built", FALSE))) {
 cat(sprintf("[Startup] (%s) Mapping database ready.\n", format(Sys.time(), "%H:%M:%S"))); flush.console()
 
 cat(sprintf("[Startup] (%s) Checking/building Castor meta database...\n", format(Sys.time(), "%H:%M:%S"))); flush.console()
-if (!isTRUE(getOption("epic2castor.castor_meta_built", FALSE))) {
+if (!isTRUE(getOption("epic2castor.castor_meta_built", FALSE)) || castor_meta_retrieved) {
+  if (castor_meta_retrieved) {
+    cat("[Startup] Castor metadata was just retrieved; forcing database rebuild.\n")
+    # Force rebuild by removing hash file
+    hash_file <- paste0(epc_path("castor_meta_db"), ".hash")
+    if (file.exists(hash_file)) {
+      try(file.remove(hash_file), silent = TRUE)
+    }
+  }
   check_and_build(
     dataFolder = epc_path("castor_meta_dir"),
     dbPath     = epc_path("castor_meta_db"),
@@ -228,6 +391,27 @@ cat(sprintf("[Startup] (%s) Mapping data loaded.\n", format(Sys.time(), "%H:%M:%
 get_selectable_tables <- function() {
   setdiff(names(mappingData), hidden_tables)
 }
+
+get_epic_input_files <- function() {
+  epic_dir <- epc_path("epic_input_data_dir")
+  if (!dir.exists(epic_dir)) {
+    return(c("No files found" = ""))
+  }
+  files <- list.files(epic_dir, pattern = "\\.(csv|xlsx)$", full.names = FALSE, ignore.case = TRUE)
+  if (length(files) == 0) {
+    return(c("No files found" = ""))
+  }
+  # Return named vector with display name and file path
+  names(files) <- files
+  return(files)
+}
+
+get_selected_epic_file_path <- function(filename) {
+  if (is.null(filename) || filename == "") return(NULL)
+  epic_dir <- epc_path("epic_input_data_dir")
+  file.path(epic_dir, filename)
+}
+
 
 is_selectable_table <- function(name) {
   !is.null(name) && name %in% get_selectable_tables()
@@ -284,6 +468,57 @@ get_site_choices <- function() {
 source(file.path(epc_path("scripts_dir"), "option_lists2.R"))
 
 reload_castor_metadata <- function() {
+  # Force rebuild of Castor meta database by removing hash file
+  cat("[CastorRefresh] Rebuilding Castor meta database...\n")
+  hash_file <- paste0(epc_path("castor_meta_db"), ".hash")
+  if (file.exists(hash_file)) {
+    try(file.remove(hash_file), silent = TRUE)
+  }
+  
+  # Rebuild the database using check_and_build to ensure hash file is recreated
+  tryCatch({
+    check_and_build(
+      dataFolder = epc_path("castor_meta_dir"),
+      dbPath     = epc_path("castor_meta_db"),
+      build_fun  = function() csv_to_database_meta(
+        dataFolder = epc_path("castor_meta_dir"),
+        dbPath     = epc_path("castor_meta_db")
+      )
+    )
+    cat("[CastorRefresh] Castor meta database rebuilt successfully.\n")
+  }, error = function(e) {
+    cat(sprintf("[CastorRefresh] Warning: Failed to rebuild Castor meta database: %s\n", conditionMessage(e)))
+  })
+  
+  # Regenerate pv_elements from fresh metadata
+  cat("[CastorRefresh] Regenerating pv_elements...\n")
+  try({ 
+    generate_pv_elements() 
+    cat("[CastorRefresh] pv_elements regenerated.\n")
+  }, silent = TRUE)
+  
+  # Force rebuild of mapping database to pick up new pv_elements
+  cat("[CastorRefresh] Rebuilding mapping database...\n")
+  hash_file_mapping <- paste0(epc_path("mapping_db"), ".hash")
+  if (file.exists(hash_file_mapping)) {
+    try(file.remove(hash_file_mapping), silent = TRUE)
+  }
+  
+  tryCatch({
+    check_and_build(
+      dataFolder = epc_path("mapping_dir"),
+      dbPath     = epc_path("mapping_db"),
+      build_fun  = function() csv_to_database(
+        dataFolder = epc_path("mapping_dir"),
+        dbPath     = epc_path("mapping_db")
+      )
+    )
+    cat("[CastorRefresh] Mapping database rebuilt successfully.\n")
+  }, error = function(e) {
+    cat(sprintf("[CastorRefresh] Warning: Failed to rebuild mapping database: %s\n", conditionMessage(e)))
+  })
+  
+  # Reload option lists with fresh data
   options(epic2castor.force_option_reload = TRUE)
   local_env <- new.env(parent = globalenv())
   sys.source(file.path(epc_path("scripts_dir"), "option_lists2.R"), envir = local_env)
@@ -294,6 +529,8 @@ reload_castor_metadata <- function() {
   radiobuttons <<- local_env$radiobuttons
   metaRadioButtons <<- local_env$metaRadioButtons
   metaVariables <<- local_env$metaVariables
+  
+  # Reload mapping data from database
   tmp_con <- dbConnect(SQLite(), dbPath)
   on.exit(dbDisconnect(tmp_con), add = TRUE)
   table_list <- setdiff(dbListTables(tmp_con), "possibleValues_Elements")
@@ -352,7 +589,9 @@ ui <- fluidPage(
                 ),
                 tags$ul(class = "dropdown-menu",
                     tags$li(actionLink("save", "Save changes", class = "menu-link")),
-                    tags$li(actionLink("undo", "Undo all changes", class = "menu-link"))
+                    tags$li(actionLink("undo", "Undo all changes", class = "menu-link")),
+                    tags$li(class = "divider"),
+                    tags$li(actionLink("select_epic_file", "Manage input files", class = "menu-link"))
                 )
               ),
               div(class = "dropdown menu-group",
@@ -458,6 +697,55 @@ server <- function(input, output, session) {
     missing_file_info = NULL,
     on_complete_handler = NULL
   )
+  
+  # Check API credentials on startup and show notification if not configured
+  observe({
+    priority = 1000  # High priority to run early
+    
+    api_config_path <- epc_path("config_api")
+    has_credentials <- FALSE
+    
+    if (file.exists(api_config_path)) {
+      api_config <- tryCatch(jsonlite::fromJSON(api_config_path), error = function(e) NULL)
+      if (!is.null(api_config) && 
+          !is.null(api_config$client_id) && nchar(trimws(api_config$client_id)) > 0 &&
+          !is.null(api_config$client_secret) && nchar(trimws(api_config$client_secret)) > 0 &&
+          !is.null(api_config$study_id) && nchar(trimws(api_config$study_id)) > 0) {
+        has_credentials <- TRUE
+      }
+    }
+    
+    if (!has_credentials) {
+      # Show a persistent notification about missing credentials
+      showNotification(
+        ui = tagList(
+          tags$div(
+            style = "font-size: 14px;",
+            tags$strong(icon("exclamation-triangle"), " API Credentials Not Configured"),
+            tags$br(),
+            tags$br(),
+            "Castor functionality is currently limited. Please configure your API credentials:",
+            tags$br(),
+            tags$ol(
+              style = "margin-top: 8px; margin-bottom: 8px;",
+              tags$li("Click 'Castor' → 'Update credentials' in the menu"),
+              tags$li("Enter your Client ID, Client Secret, and Study ID"),
+              tags$li("Click 'Castor' → 'Refresh metadata' to load study data")
+            ),
+            tags$small(
+              style = "color: #777;",
+              icon("info-circle"), 
+              " Find your credentials in Castor EDC under Settings → API"
+            )
+          )
+        ),
+        duration = NULL,  # Persistent notification
+        closeButton = TRUE,
+        type = "warning",
+        id = "credentials_warning"
+      )
+    }
+  })
   
   # Tab State Management
   tabState <- reactiveValues(
@@ -974,6 +1262,20 @@ server <- function(input, output, session) {
   # ============================================================================
   app_ready <- reactiveVal(FALSE)
   
+  # Fallback: hide loading screen after timeout in case table_ready is not triggered
+  observe({
+    # Wait a bit for normal initialization
+    invalidateLater(2000, session)  # 2 seconds
+    
+    isolate({
+      if (!app_ready()) {
+        cat("[Startup] Fallback: Hiding loading screen after timeout\n")
+        session$sendCustomMessage("hideLoadingScreen", list())
+        app_ready(TRUE)
+      }
+    })
+  })
+  
   # Hide loading screen once the table is fully initialized
   observeEvent(input$table_ready, {
     # Ensure this only runs once
@@ -1069,7 +1371,8 @@ server <- function(input, output, session) {
         
         # Read the file
         if (file_ext == "csv") {
-          test_data <- readr::read_csv2(uploaded_file$datapath, n_max = 1, col_types = cols(), show_col_types = FALSE)
+          test_data <- readr::read_csv2(uploaded_file$datapath, n_max = 1, col_types = cols(), 
+                                        show_col_types = FALSE, locale = locale(decimal_mark = ",", grouping_mark = "."))
         } else if (file_ext == "xlsx") {
           test_data <- readxl::read_excel(uploaded_file$datapath, n_max = 1)
         } else {
@@ -2163,6 +2466,47 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$refresh_castor, {
+    # Check if API credentials are configured
+    api_config_path <- epc_path("config_api")
+    has_credentials <- FALSE
+    
+    if (file.exists(api_config_path)) {
+      api_config <- tryCatch(jsonlite::fromJSON(api_config_path), error = function(e) NULL)
+      if (!is.null(api_config) && 
+          !is.null(api_config$client_id) && nchar(trimws(api_config$client_id)) > 0 &&
+          !is.null(api_config$client_secret) && nchar(trimws(api_config$client_secret)) > 0 &&
+          !is.null(api_config$study_id) && nchar(trimws(api_config$study_id)) > 0) {
+        has_credentials <- TRUE
+      }
+    }
+    
+    if (!has_credentials) {
+      showModalSafe(modalDialog(
+        title = tags$div(icon("exclamation-triangle"), " API Credentials Required"),
+        tagList(
+          p("The Castor API credentials have not been configured yet."),
+          p("To refresh metadata, you need to:"),
+          tags$ol(
+            tags$li(HTML("Configure your credentials by clicking <strong>'Update credentials'</strong> in the Castor menu")),
+            tags$li("Fill in your Client ID, Client Secret, and Study ID"),
+            tags$li("Save the credentials"),
+            tags$li("Try refreshing metadata again")
+          ),
+          hr(),
+          p(style = "color: #777; font-size: 0.9em;",
+            icon("info-circle"), 
+            " You can find your credentials in Castor EDC under Settings → API")
+        ),
+        footer = tagList(
+          actionButton("go_to_credentials", "Update Credentials Now", class = "btn btn-primary"),
+          modalButton("Cancel")
+        ),
+        easyClose = TRUE,
+        size = "m"
+      ))
+      return()
+    }
+    
     castor_script <- epc_path("castor_retrieval_script")
     if (is.null(castor_script) || !file.exists(castor_script)) {
       safeNotify(sprintf("Castor retrieval script not found: %s", as.character(castor_script)), "error")
@@ -2325,6 +2669,17 @@ server <- function(input, output, session) {
                   `aria-valuemin` = 0, `aria-valuemax` = 100,
                   "Done"))
         })
+        
+        # Show success notification
+        showNotification(
+          ui = tagList(
+            icon("check-circle"),
+            " Castor metadata successfully refreshed! All study data is now up to date."
+          ),
+          duration = 8,
+          type = "message",
+          closeButton = TRUE
+        )
       } else {
         err_msg <- runnerState$error_message
         if (is.null(err_msg) || !nzchar(err_msg)) {
@@ -3015,12 +3370,28 @@ server <- function(input, output, session) {
     )
     write_json(newConfig, path = epc_path("config_api"), pretty = TRUE, auto_unbox = TRUE)
     removeModalSafe()
+    
+    # Remove the credentials warning notification if it exists
+    removeNotification("credentials_warning")
+    
     cat("API credentials have been updated successfully!\n")
     showModalSafe(modalDialog(
       title = "Success",
-      "API credentials have been updated successfully!",
+      tagList(
+        p(icon("check-circle"), " API credentials have been updated successfully!"),
+        p("You can now refresh the Castor metadata by clicking 'Refresh metadata' in the Castor menu.")
+      ),
       easyClose = TRUE
     ))
+  })
+  
+  # Handler for "Update Credentials Now" button from the refresh_castor warning modal
+  observeEvent(input$go_to_credentials, {
+    removeModalSafe()  # Close the warning modal first
+    # Trigger the update_credentials modal
+    shinyjs::delay(100, {
+      shinyjs::click("update_credentials")
+    })
   })
   
   observeEvent(input$close_modal, {
@@ -3586,8 +3957,9 @@ server <- function(input, output, session) {
     } else {
       # Check of checkboxes ook tab metadata heeft
       if (!("tab_name_meta" %in% names(checkbox_all))) {
-        # Checkboxes heeft geen tab metadata, skip tab-aware processing
-        return()
+        # Checkboxes heeft geen tab metadata, voeg lege kolommen toe
+        checkbox_all$tab_name_meta <- character(nrow(checkbox_all))
+        checkbox_all$tab_order_meta <- integer(nrow(checkbox_all))
       }
       
       # FASE 6.5.4: Loop door alle tabs en voeg checkboxes toe per tab
@@ -3684,6 +4056,7 @@ server <- function(input, output, session) {
   
   updateRadioMapping <- function() {
     req(mappingData[["elements"]], mappingData[["waarde_radiobuttons"]])
+    
     # FASE 6.5.4: Tab-aware radio button mapping
     elements_all <- mappingData[["elements"]]
     radio_all <- mappingData[["waarde_radiobuttons"]]
@@ -3696,8 +4069,9 @@ server <- function(input, output, session) {
     } else {
       # Check of radiobuttons ook tab metadata heeft
       if (!("tab_name_meta" %in% names(radio_all))) {
-        # Radiobuttons heeft geen tab metadata, skip tab-aware processing
-        return()
+        # Radiobuttons heeft geen tab metadata, voeg lege kolommen toe
+        radio_all$tab_name_meta <- character(nrow(radio_all))
+        radio_all$tab_order_meta <- integer(nrow(radio_all))
       }
       
       # FASE 6.5.4: Loop door alle tabs en voeg radiobuttons toe per tab
@@ -3871,7 +4245,8 @@ server <- function(input, output, session) {
     }
     
     if(file %in% c("waarde_checkboxes", "waarde_radiobuttons")) {
-      elements_df <- as.data.table(dbReadTable(con, "elements"))
+      # FASE 6: Gebruik mappingData[["elements"]] in plaats van database voor real-time updates
+      elements_df <- as.data.table(copy(mappingData[["elements"]]))
       
       # FASE 6: Verwijder metadata kolommen uit elements voor merge
       meta_cols <- names(elements_df)[grepl("tab_(name|order)_meta", names(elements_df))]
@@ -5116,11 +5491,6 @@ server <- function(input, output, session) {
         return(NULL)
       }
       new_data[info$row, col_index - 1] <- info$value
-      
-      if (input$file == "elements") {
-        updateCheckboxMapping()
-        updateRadioMapping()
-      }
     }
     
     # Update actieve tab data
@@ -5129,6 +5499,16 @@ server <- function(input, output, session) {
       if (length(active_idx) > 0) {
         tabState$tabs[[active_idx]]$data <- new_data
       }
+    }
+    
+    # If we edited the elements table, update checkbox/radiobutton mappings
+    if (input$file == "elements" && length(tabState$tabs) > 0) {
+      # First consolidate all tab data into mappingData
+      mappingData[["elements"]] <<- consolidate_tabs_with_metadata(tabState$tabs)
+      
+      # Then update the related mappings
+      updateCheckboxMapping()
+      updateRadioMapping()
     }
     
     render_table(new_data, input$file)
@@ -5167,6 +5547,16 @@ server <- function(input, output, session) {
         if (length(active_idx) > 0) {
           tabState$tabs[[active_idx]]$data <- new_data
         }
+      }
+      
+      # If we edited the elements table, update checkbox/radiobutton mappings
+      if (input$file == "elements" && length(tabState$tabs) > 0) {
+        # First consolidate all tab data into mappingData
+        mappingData[["elements"]] <<- consolidate_tabs_with_metadata(tabState$tabs)
+        
+        # Then update the related mappings
+        updateCheckboxMapping()
+        updateRadioMapping()
       }
       
       session$sendCustomMessage("updateSelectedOption", list(id = info$id, new_value = info$value))
@@ -5257,6 +5647,515 @@ server <- function(input, output, session) {
       title = "Success",
       "Database and CSV files have been saved successfully!"
     ))
+  })
+
+  # Select Epic input file
+  observeEvent(input$select_epic_file, {
+    showModalSafe(modalDialog(
+      title = "Manage Input Files",
+      tagList(
+        h4("Select File Type:"),
+        selectInput(
+          "input_file_type",
+          NULL,
+          choices = c(
+            "Epic Export" = "epic_export",
+            "Biobank Data" = "biobank_data",
+            "Follow-up Data" = "follow_up"
+          ),
+          width = "100%"
+        ),
+        hr(),
+        h4("Available Files:"),
+        uiOutput("available_files_ui"),
+        hr(),
+        h4("Upload New File:"),
+        fileInput(
+          "upload_input_file",
+          NULL,
+          accept = c(".csv", ".xlsx"),
+          buttonLabel = "Browse...",
+          placeholder = "No file selected"
+        ),
+        uiOutput("upload_validation_ui")  # Add validation UI here
+      ),
+      footer = tagList(
+        modalButton("Close"),
+        actionButton("confirm_file_selection", "Select & Close", class = "btn btn-primary",
+                     title = "Upload new file (if selected) and/or select file from list")
+      ),
+      size = "l",
+      easyClose = FALSE
+    ))
+  })
+  
+  # Render available files based on selected type
+  output$available_files_ui <- renderUI({
+    req(input$input_file_type)
+    
+    # Get directory path based on type
+    dir_path <- switch(input$input_file_type,
+      "epic_export" = epc_path("epic_input_data_dir"),
+      "biobank_data" = epc_path("biobank_input_data_dir"),
+      "follow_up" = file.path("input_data", "follow_up"),
+      epc_path("epic_input_data_dir")
+    )
+    
+    if (!dir.exists(dir_path)) {
+      return(tags$div(
+        style = "padding: 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;",
+        icon("exclamation-triangle"), " Directory not found: ", dir_path
+      ))
+    }
+    
+    files <- list.files(dir_path, pattern = "\\.(csv|xlsx)$", full.names = FALSE, ignore.case = TRUE)
+    
+    if (length(files) == 0) {
+      return(tags$div(
+        style = "padding: 10px; background: #e7f3ff; border: 1px solid #0066cc; border-radius: 4px;",
+        icon("info-circle"), " No files found in this directory"
+      ))
+    }
+    
+    # Create a list of files with select buttons
+    file_items <- lapply(files, function(file) {
+      tags$div(
+        style = "display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee;",
+        tags$div(
+          style = "flex-grow: 1;",
+          icon("file-alt"), 
+          tags$span(style = "margin-left: 8px;", file)
+        ),
+        tags$div(
+          style = "display: flex; gap: 5px;",
+          actionButton(
+            paste0("select_file_", gsub("[^A-Za-z0-9]", "_", file)),
+            "Select",
+            class = "btn btn-sm btn-primary",
+            onclick = sprintf("Shiny.setInputValue('file_to_select', '%s', {priority: 'event'}); Shiny.setInputValue('file_type_context', '%s', {priority: 'event'});", file, input$input_file_type)
+          ),
+          actionButton(
+            paste0("delete_file_", gsub("[^A-Za-z0-9]", "_", file)),
+            icon("trash"),
+            class = "btn btn-sm btn-danger",
+            onclick = sprintf("Shiny.setInputValue('file_to_delete', '%s', {priority: 'event'}); Shiny.setInputValue('file_type_context', '%s', {priority: 'event'});", file, input$input_file_type),
+            title = "Delete file"
+          )
+        )
+      )
+    })
+    
+    tags$div(
+      style = "max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;",
+      file_items
+    )
+  })
+  
+  # Store pending upload info
+  pending_upload_info <- reactiveVal(NULL)
+  
+  # Handle file upload with validation - show inline feedback
+  observeEvent(input$upload_input_file, {
+    req(input$upload_input_file, input$input_file_type)
+    
+    uploaded <- input$upload_input_file
+    
+    # Show validation in progress
+    output$upload_validation_ui <- renderUI({
+      div(
+        style = "margin-top: 10px; padding: 10px; background: #e7f3ff; border: 1px solid #0066cc; border-radius: 4px;",
+        icon("spinner", class = "fa-spin"), " Validating file..."
+      )
+    })
+    
+    target_dir <- switch(input$input_file_type,
+      "epic_export" = epc_path("epic_input_data_dir"),
+      "biobank_data" = epc_path("biobank_input_data_dir"),
+      "follow_up" = file.path("input_data", "follow_up"),
+      epc_path("epic_input_data_dir")
+    )
+    
+    # Create directory if it doesn't exist
+    if (!dir.exists(target_dir)) {
+      dir.create(target_dir, recursive = TRUE)
+    }
+    
+    target_path <- file.path(target_dir, uploaded$name)
+    
+    # Check if file already exists
+    if (file.exists(target_path)) {
+      output$upload_validation_ui <- renderUI({
+        div(
+          style = "margin-top: 10px; padding: 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;",
+          p(icon("exclamation-triangle"), " File already exists", style = "color: #856404; font-weight: bold; margin: 0;"),
+          p(sprintf("A file named '%s' already exists in this directory.", uploaded$name),
+            style = "margin: 5px 0 0 0; color: #856404;")
+        )
+      })
+      return()
+    }
+    
+    # Validate file columns before uploading
+    tryCatch({
+      file_ext <- tolower(tools::file_ext(uploaded$name))
+      
+      # Read the file to check columns
+      test_data <- NULL
+      if (file_ext == "csv") {
+        test_data <- readr::read_csv2(uploaded$datapath, n_max = 1, col_types = cols(), 
+                                      show_col_types = FALSE, locale = locale(decimal_mark = ",", grouping_mark = "."))
+      } else if (file_ext == "xlsx") {
+        test_data <- readxl::read_excel(uploaded$datapath, n_max = 1)
+      } else {
+        output$upload_validation_ui <- renderUI({
+          div(
+            style = "margin-top: 10px; padding: 10px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;",
+            p(icon("times-circle"), " Invalid file type", style = "color: #721c24; font-weight: bold; margin: 0;"),
+            p("Only .csv and .xlsx files are supported.", style = "margin: 5px 0 0 0; color: #721c24;")
+          )
+        })
+        return()
+      }
+      
+      # Determine expected columns based on file type
+      expected_cols <- NULL
+      epic_tabel <- NULL
+      
+      if (input$input_file_type == "epic_export") {
+        epic_tabel <- "EpicExport"
+      } else if (input$input_file_type == "biobank_data") {
+        # Check filename to determine if it's biobank_data or MDNS
+        if (grepl("biobank", uploaded$name, ignore.case = TRUE)) {
+          epic_tabel <- "biobank_data"
+        } else if (grepl("MDNS", uploaded$name, ignore.case = TRUE)) {
+          epic_tabel <- "MDNS"
+        } else {
+          epic_tabel <- "biobank_data"  # Default to biobank_data
+        }
+      } else if (input$input_file_type == "follow_up") {
+        epic_tabel <- "FollowUp"
+      }
+      
+      # Query expected columns from variabelen table
+      if (!is.null(epic_tabel)) {
+        variabelen_query <- sprintf(
+          "SELECT DISTINCT epic_kolom FROM variabelen WHERE epic_tabel = '%s' AND epic_kolom != ''",
+          epic_tabel
+        )
+        variabelen_result <- tryCatch(
+          dbGetQuery(con, variabelen_query),
+          error = function(e) NULL
+        )
+        
+        if (!is.null(variabelen_result) && nrow(variabelen_result) > 0) {
+          expected_cols <- variabelen_result$epic_kolom
+        }
+      }
+      
+      # Validate columns if we have expected columns
+      if (!is.null(expected_cols) && length(expected_cols) > 0) {
+        actual_cols <- colnames(test_data)
+        missing_cols <- setdiff(expected_cols, actual_cols)
+        
+        if (length(missing_cols) > 0) {
+          # Validation failed - show inline warning
+          output$upload_validation_ui <- renderUI({
+            div(
+              style = "margin-top: 10px; padding: 10px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;",
+              p(icon("exclamation-triangle"), " Column validation failed", 
+                style = "color: #721c24; font-weight: bold; margin: 0;"),
+              p(sprintf("The file is missing %d required column(s). You can still upload it using 'Select & Close'.", 
+                length(missing_cols)),
+                style = "margin: 5px 0; color: #721c24;"),
+              tags$details(
+                style = "margin-top: 8px;",
+                tags$summary(
+                  sprintf("Show missing columns (%d)", length(missing_cols)), 
+                  style = "cursor: pointer; color: #721c24; font-weight: bold;"
+                ),
+                tags$div(
+                  style = "margin-top: 8px; max-height: 150px; overflow-y: auto; background: #fff; padding: 8px; border-radius: 3px;",
+                  tags$ul(
+                    style = "margin: 0; padding-left: 20px;",
+                    lapply(head(missing_cols, 30), function(col) tags$li(code(col)))
+                  ),
+                  if (length(missing_cols) > 30) {
+                    tags$p(sprintf("... and %d more", length(missing_cols) - 30), 
+                           style = "color: #721c24; margin: 5px 0 0 0;")
+                  }
+                )
+              )
+            )
+          })
+          
+          # Store upload info for later upload via Select & Close
+          pending_upload_info(list(
+            datapath = uploaded$datapath,
+            target_path = target_path,
+            name = uploaded$name,
+            type = input$input_file_type,
+            has_warnings = TRUE
+          ))
+          
+          return()
+        }
+      }
+      
+      # Validation passed - show success
+      output$upload_validation_ui <- renderUI({
+        div(
+          style = "margin-top: 10px; padding: 10px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;",
+          p(icon("check-circle"), " File is valid and ready to upload", 
+            style = "color: #155724; font-weight: bold; margin: 0;"),
+          p(sprintf("File: %s - Click 'Select & Close' to upload.", uploaded$name), 
+            style = "margin: 5px 0 0 0; color: #155724; font-size: 0.9em;")
+        )
+      })
+      
+      # Store upload info for upload via Select & Close
+      pending_upload_info(list(
+        datapath = uploaded$datapath,
+        target_path = target_path,
+        name = uploaded$name,
+        type = input$input_file_type,
+        has_warnings = FALSE
+      ))
+      
+    }, error = function(e) {
+      output$upload_validation_ui <- renderUI({
+        div(
+          style = "margin-top: 10px; padding: 10px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;",
+          p(icon("times-circle"), " Validation error", style = "color: #721c24; font-weight: bold; margin: 0;"),
+          p(sprintf("Error: %s", e$message), style = "margin: 5px 0 0 0; color: #721c24;")
+        )
+      })
+    })
+  })
+  
+  # Store selected Epic file and its type (persistent)
+  selected_epic_file <- reactiveVal(NULL)
+  selected_file_type <- reactiveVal(NULL)
+  
+  # Temporary selection (before confirmation)
+  temp_selected_file <- reactiveVal(NULL)
+  temp_selected_type <- reactiveVal(NULL)
+  
+  # Handle file selection (temporary, not confirmed yet)
+  observeEvent(input$file_to_select, {
+    req(input$file_to_select, input$file_type_context)
+    
+    # Store temporarily
+    temp_selected_file(input$file_to_select)
+    temp_selected_type(input$file_type_context)
+    
+    # Visual feedback that file is selected (highlight in UI would go here if needed)
+    # For now just store it
+  })
+  
+  # Confirm file selection and close modal (also handles file upload if present)
+  observeEvent(input$confirm_file_selection, {
+    upload_info <- pending_upload_info()
+    
+    # Step 1: Handle file upload if there's a pending upload
+    if (!is.null(upload_info)) {
+      tryCatch({
+        # Perform the upload
+        file.copy(upload_info$datapath, upload_info$target_path, overwrite = FALSE)
+        
+        notification_type <- if (isTRUE(upload_info$has_warnings)) "warning" else "message"
+        notification_icon <- if (isTRUE(upload_info$has_warnings)) "exclamation-triangle" else "check-circle"
+        
+        showNotification(
+          ui = tagList(
+            icon(notification_icon),
+            sprintf(" File '%s' uploaded%s", 
+                    upload_info$name,
+                    if (isTRUE(upload_info$has_warnings)) " with validation warnings" else " successfully")
+          ),
+          type = notification_type,
+          duration = 5
+        )
+        
+        # Auto-select the uploaded file
+        selected_epic_file(upload_info$name)
+        selected_file_type(upload_info$type)
+        
+        # Reload option lists if an epic_export file was uploaded
+        # This ensures dropdown options reflect the new data
+        if (upload_info$type == "epic_export") {
+          tryCatch({
+            options(epic2castor.force_option_reload = TRUE)
+            local_env <- new.env(parent = globalenv())
+            sys.source(file.path(epc_path("scripts_dir"), "option_lists2.R"), envir = local_env)
+            option_data <<- local_env$option_data
+            checkBoxesValues <<- local_env$checkBoxesValues
+            radioButtonOptionValues <<- local_env$radioButtonOptionValues
+            checkboxes <<- local_env$checkboxes
+            radiobuttons <<- local_env$radiobuttons
+            metaRadioButtons <<- local_env$metaRadioButtons
+            metaVariables <<- local_env$metaVariables
+            
+            # Re-render current table to update existing dropdowns with new options
+            if (!is.null(input$file) && is_selectable_table(input$file)) {
+              active_data <- get_active_tab_data()
+              if (!is.null(active_data) && nrow(active_data) > 0) {
+                render_table(active_data, input$file, mode = "full")
+              }
+            }
+          }, error = function(e) {
+            cat(sprintf("[FileUpload] Warning: Failed to reload option lists: %s\n", conditionMessage(e)))
+          })
+        }
+        
+        # Clear pending upload and temporary selection
+        pending_upload_info(NULL)
+        temp_selected_file(NULL)
+        temp_selected_type(NULL)
+        
+        removeModalSafe()
+        return()
+        
+      }, error = function(e) {
+        showNotification(
+          sprintf("Error uploading file: %s", e$message),
+          type = "error",
+          duration = 8
+        )
+        return()
+      })
+    }
+    
+    # Step 2: If no upload, check if a file from the list was selected
+    if (is.null(temp_selected_file())) {
+      showNotification(
+        "Please select a file from the list or upload a new file.",
+        type = "warning",
+        duration = 4
+      )
+      return()
+    }
+    
+    # Confirm the selection from the list
+    selected_epic_file(temp_selected_file())
+    selected_file_type(temp_selected_type())
+    
+    # Clear temporary selection
+    temp_selected_file(NULL)
+    temp_selected_type(NULL)
+    
+    removeModalSafe()
+    
+    showNotification(
+      ui = tagList(
+        icon("check-circle"),
+        sprintf(" Selected: %s (%s)", selected_epic_file(), 
+                switch(selected_file_type(),
+                  "epic_export" = "Epic Export",
+                  "biobank_data" = "Biobank Data",
+                  "follow_up" = "Follow-up Data",
+                  "Unknown"))
+      ),
+      duration = 5,
+      type = "message"
+    )
+  })
+  
+  # Clear temporary selection when modal is dismissed without confirmation
+  observe({
+    # This will trigger whenever the modal state changes
+    # We use input$shiny_modal to detect when modal is closed
+    if (is.null(input$shiny_modal) || isFALSE(input$shiny_modal)) {
+      temp_selected_file(NULL)
+      temp_selected_type(NULL)
+    }
+  })
+  
+  # Handle file deletion
+  observeEvent(input$file_to_delete, {
+    req(input$file_to_delete, input$file_type_context)
+    
+    dir_path <- switch(input$file_type_context,
+      "epic_export" = epc_path("epic_input_data_dir"),
+      "biobank_data" = epc_path("biobank_input_data_dir"),
+      "follow_up" = file.path("input_data", "follow_up"),
+      epc_path("epic_input_data_dir")
+    )
+    
+    file_path <- file.path(dir_path, input$file_to_delete)
+    
+    showModalSafe(modalDialog(
+      title = "Confirm Deletion",
+      tagList(
+        p(icon("exclamation-triangle", style = "color: #dc3545;"), 
+          " Are you sure you want to delete this file?"),
+        tags$div(
+          style = "padding: 10px; background: #f8f9fa; border-radius: 4px; margin: 10px 0;",
+          tags$strong("File: "), input$file_to_delete,
+          tags$br(),
+          tags$strong("Type: "), switch(input$file_type_context,
+            "epic_export" = "Epic Export",
+            "biobank_data" = "Biobank Data",
+            "follow_up" = "Follow-up Data",
+            "Unknown")
+        ),
+        p(style = "color: #dc3545;", "This action cannot be undone!")
+      ),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_delete_file", "Delete", class = "btn btn-danger")
+      ),
+      easyClose = TRUE
+    ))
+  })
+  
+  observeEvent(input$confirm_delete_file, {
+    req(input$file_to_delete, input$file_type_context)
+    
+    dir_path <- switch(input$file_type_context,
+      "epic_export" = epc_path("epic_input_data_dir"),
+      "biobank_data" = epc_path("biobank_input_data_dir"),
+      "follow_up" = file.path("input_data", "follow_up"),
+      epc_path("epic_input_data_dir")
+    )
+    
+    file_path <- file.path(dir_path, input$file_to_delete)
+    file_to_show <- input$file_to_delete
+    
+    removeModalSafe()
+    
+    tryCatch({
+      if (file.exists(file_path)) {
+        file.remove(file_path)
+        
+        # If this was the selected file, clear selection
+        if (!is.null(selected_epic_file()) && selected_epic_file() == input$file_to_delete) {
+          selected_epic_file(NULL)
+          selected_file_type(NULL)
+        }
+        
+        showNotification(
+          ui = tagList(
+            icon("check-circle"),
+            sprintf(" File '%s' deleted successfully", file_to_show)
+          ),
+          type = "message",
+          duration = 5
+        )
+        
+        # Reopen the file manager modal
+        shinyjs::delay(200, {
+          shinyjs::click("select_epic_file")
+        })
+      } else {
+        showNotification("File not found", type = "warning", duration = 3)
+      }
+    }, error = function(e) {
+      showNotification(
+        sprintf("Error deleting file: %s", e$message),
+        type = "error",
+        duration = 5
+      )
+    })
   })
 
   # Undo: reload the data exclusively from the database
