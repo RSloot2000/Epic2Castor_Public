@@ -7,42 +7,17 @@ const LOADING_DOTS_INTERVAL = 500;   // Interval for loading dots animation (ms)
 
 // ===== LOADING SCREEN =====
 let loadingDotsInterval = null;
-let loadingAnimationFrame = null;
 
 /**
- * Animates the loading text by cycling through dots (0-5)
- * Updates the #loading-text element every 500ms
- * Uses both setInterval and CSS animation for robustness
+ * Animates the loading text by cycling through dots (0-4 dots)
+ * NOTE: Animation is now handled by CSS for better performance
+ * CSS animations run on GPU compositor thread and won't freeze when main thread is blocked
+ * This function is kept for potential fallback but does nothing by default
  */
 function animateLoadingDots() {
-    let dotCount = 0;
-    const maxDots = 5;
-    const loadingTextElement = document.getElementById('loading-text');
-    
-    if (!loadingTextElement) return;
-    
-    // Set initial text (CSS animation handles the dots)
-    loadingTextElement.textContent = 'Loading';
-    
-    // JavaScript-based animation as backup (in case CSS animation fails)
-    let lastUpdate = Date.now();
-    
-    function updateDots() {
-        const now = Date.now();
-        if (now - lastUpdate >= LOADING_DOTS_INTERVAL) {
-            dotCount = (dotCount + 1) % (maxDots + 1);
-            const dots = '.'.repeat(dotCount);
-            // Only update if element still exists
-            if (loadingTextElement && loadingTextElement.parentNode) {
-                loadingTextElement.textContent = 'Loading' + dots;
-            }
-            lastUpdate = now;
-        }
-        loadingAnimationFrame = requestAnimationFrame(updateDots);
-    }
-    
-    // Start the animation loop
-    loadingAnimationFrame = requestAnimationFrame(updateDots);
+    console.log('[Loading] Loading animation handled by CSS');
+    // CSS animation handles the dots now - no JavaScript needed
+    // This prevents animation from freezing when DataTable blocks the main thread
 }
 
 /**
@@ -51,16 +26,14 @@ function animateLoadingDots() {
  * Cleans up animation timers and fades out the loading overlay
  */
 function hideLoadingScreen() {
-    // Stop the animation interval
+    console.log('[Loading] Hiding loading screen...');
+    
+    // No need to clear interval anymore - CSS handles animation
+    // Keeping this for backward compatibility
     if (loadingDotsInterval) {
+        console.log('[Loading] Clearing interval ID:', loadingDotsInterval);
         clearInterval(loadingDotsInterval);
         loadingDotsInterval = null;
-    }
-    
-    // Stop the animation frame (requestAnimationFrame cleanup)
-    if (loadingAnimationFrame) {
-        cancelAnimationFrame(loadingAnimationFrame);
-        loadingAnimationFrame = null;
     }
     
     // Fade out and remove the loading screen from DOM
@@ -69,7 +42,10 @@ function hideLoadingScreen() {
         loadingScreen.classList.add('fade-out'); // CSS handles smooth transition
         setTimeout(function() {
             loadingScreen.remove(); // Remove from DOM after fade completes
+            console.log('[Loading] Loading screen removed from DOM');
         }, 500); // Match the CSS transition duration
+    } else {
+        console.log('[Loading] Loading screen element not found');
     }
 }
 
@@ -253,12 +229,26 @@ function notifyTableReady() {
         const $tableContainer = $("#table");
         
         // Only notify if table exists, is visible, and has content
-        if ($table.length > 0 && $tableContainer.is(":visible") && $table.find('tbody tr').length > 0) {
-            console.log('[Loading Screen] Table is ready, notifying server...');
-            Shiny.setInputValue('table_ready', true, {priority: 'event'});
+        if ($table.length > 0 && $tableContainer.is(":visible")) {
+            // Check if table has been initialized by DataTables
+            const hasDataTable = $.fn.DataTable && $.fn.DataTable.isDataTable($table);
+            const hasRows = $table.find('tbody tr').length > 0;
+            
+            if (hasDataTable && hasRows) {
+                console.log('[Loading Screen] Table is ready and has content, notifying server...');
+                Shiny.setInputValue('table_ready', true, {priority: 'event'});
+            } else if (hasDataTable) {
+                console.log('[Loading Screen] Table initialized but no rows yet, waiting...');
+                // Table exists but empty - wait a bit longer
+                setTimeout(notifyTableReady, 200);
+            } else {
+                console.log('[Loading Screen] Table not initialized as DataTable yet, waiting...');
+                // Not a DataTable yet - wait for initialization
+                setTimeout(notifyTableReady, 200);
+            }
         } else {
             // Table not ready yet, try again after a short delay
-            console.log('[Loading Screen] Table not ready yet, retrying...');
+            console.log('[Loading Screen] Table not visible yet, retrying...');
             setTimeout(notifyTableReady, 200);
         }
     }
@@ -377,18 +367,24 @@ $(document).ready(function() {
     }, BACKUP_INIT_DELAY);
     
     // Listen for DataTable draw events - most reliable indicator that table is ready
+    // This should fire when the table is rendered for the first time
     $(document).on('draw.dt', '#table table', function() {
         console.log('[Loading Screen] DataTable draw event fired');
-        // Use a small delay to ensure all rendering is complete
+        // Use a small delay to ensure all rendering is complete (select2, etc.)
         setTimeout(function() {
             notifyTableReady();
-        }, 100);
+        }, 300);
     });
     
-    // Fallback: notify after backup delay if draw event never fires
+    // Fallback: If draw event never fires (edge case), try to notify anyway
+    // This should only trigger if something went wrong with DataTable initialization
     setTimeout(function() {
-        notifyTableReady();
-    }, BACKUP_INIT_DELAY + 500);
+        // Only notify if we haven't already
+        if (!$('#loading-screen').hasClass('fade-out')) {
+            console.log('[Loading Screen] Fallback timeout reached, attempting to notify...');
+            notifyTableReady();
+        }
+    }, 5000);  // 5 seconds - give plenty of time for normal initialization
     
     // Trigger window resize event to update UI measurements
     $(window).trigger("resize");

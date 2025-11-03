@@ -566,21 +566,22 @@ select.lazy-load.select2-hidden-accessible {
   text-align: left;
 }
 
-/* Animated dots appended to loading text via CSS */
+/* Animated dots using CSS animation - runs on GPU, won't be blocked by main thread */
 #loading-text::after {
   content: '';
-  animation: loadingDots 3s steps(6, end) infinite;  /* Step animation for dots */
+  animation: loadingDots 2.5s steps(5, end) infinite;
+  display: inline-block;
+  width: 40px;  /* Reserve space for dots */
 }
 
-/* Loading dots animation - cycles through 0-5 dots
-   Creates appearance of "Loading", "Loading.", "Loading..", etc. */
+/* CSS-only loading dots animation - cycles through 0-4 dots
+   This runs on the GPU compositor thread, so it won't freeze even when JS is blocked */
 @keyframes loadingDots {
-  0% { content: ''; }
-  16.66% { content: '.'; }
-  33.33% { content: '..'; }
-  50% { content: '...'; }
-  66.66% { content: '....'; }
-  83.33% { content: '.....'; }
+  0%   { content: ''; }
+  20%  { content: '.'; }
+  40%  { content: '..'; }
+  60%  { content: '...'; }
+  80%  { content: '....'; }
   100% { content: ''; }
 }
 

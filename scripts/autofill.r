@@ -426,7 +426,7 @@ add_approved_translations_to_dictionary <- function(results, selected_indices = 
   
   added_count <- 0
   
-  for (i in 1:nrow(api_translations)) {
+  for (i in seq_len(nrow(api_translations))) {
     row <- api_translations[i]
     
     # Determine category based on castor_value content
@@ -1099,15 +1099,15 @@ apply_all_strategies <- function(castor_value, element_id, all_data, ref_dict, m
   }
   
   # STRATEGY 3: Check medical dictionary
+  # Medical dictionary matches are ALWAYS accepted (high confidence, curated translations)
+  # Don't check against available_values - the dictionary is the source of truth
   result <- strategy_medical_dict(castor_value, med_dict)
-  if (!is.null(result) && is_valid_epic_value(result$epic_value, available_values)) {
-    autofill_log(sprintf("  ✓ Medical dictionary match: '%s'", result$epic_value), "INFO")
+  if (!is.null(result)) {
+    autofill_log(sprintf("  ✓ Medical dictionary match: '%s' (always accepted)", result$epic_value), "INFO")
     return(list(
       best = result,
       alternatives = list(result)
     ))
-  } else if (!is.null(result)) {
-    autofill_log(sprintf("  ⚠ Medical dict '%s' not in available options", result$epic_value), "WARNING")
   }
   
   # STRATEGY 4: Translate and check against available options
@@ -1462,7 +1462,7 @@ validate_before_autofill <- function(data, element = NULL) {
   checks <- list(
     has_data = nrow(data) > 0,
     castor_values_exist = castor_col != "unknown" && all(!is.na(data[[castor_col]]) & data[[castor_col]] != ""),
-    no_duplicate_castor = !any(duplicated(data[, .(Element, get(castor_col), tab_name_meta)])),
+    # REMOVED: no_duplicate_castor check - het is normaal dat meerdere elementen dezelfde Castor waarde hebben
     has_required_columns = all(c("Element", "waarde", "tab_name_meta") %in% names(data)) && castor_col != "unknown"
   )
   
@@ -1494,25 +1494,6 @@ process_autofill <- function(table_name, tab_name = NULL, review_existing = FALS
   
   # 1. Load data (use provided data if available for real-time UI state)
   data <- load_mappings_data(table_name, current_data = current_data)
-  
-  # DEBUG: Log data structure
-  autofill_log(sprintf("DEBUG: Data has %d rows with columns: %s", 
-                       nrow(data), 
-                       paste(names(data), collapse = ", ")))
-  
-  # Check for empty EPIC values (waarde column)
-  if ("waarde" %in% names(data)) {
-    empty_count <- sum(is.na(data$waarde) | data$waarde == "")
-    autofill_log(sprintf("DEBUG: Found %d rows with empty 'waarde' (EPIC value)", empty_count))
-    
-    if (empty_count > 0) {
-      empty_elements <- unique(data[is.na(waarde) | waarde == "", Element])
-      autofill_log(sprintf("  - Elements with empty values: %s", 
-                           paste(head(empty_elements, 10), collapse = ", ")))
-    }
-  } else {
-    autofill_log("WARNING: 'waarde' column not found in data!")
-  }
   
   # 2. Build dictionaries
   ref_dict <- build_reference_dictionary(data)
@@ -1576,7 +1557,7 @@ process_autofill <- function(table_name, tab_name = NULL, review_existing = FALS
     }
     
     # Process batch
-    for (i in 1:nrow(batch_rows)) {
+    for (i in seq_len(nrow(batch_rows))) {
       row <- batch_rows[i]
       global_idx <- start_idx + i - 1  # Global row index
       

@@ -11,6 +11,9 @@ epc_load_paths <- function() {
   # Biobank data IO (nieuw)
     biobank_input_data_dir           = "input_data/biobank_data",
     biobank_output_data_dir          = "output_data/biobank_data",
+  # Follow-up data IO
+    follow_up_input_data_dir         = "input_data/follow_up",
+    follow_up_output_data_dir        = "output_data/follow_up",
     baseline_output_data_dir         = "output_data/baseline",
     mapping_dir                      = "mapping",
     mapping_db                       = "db/mapping_data.db",

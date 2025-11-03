@@ -23,7 +23,6 @@
     "Status quo": "Status Quo",
     "Improvement": "Verbetering"
   },
-  
   "medical_terms": {
     "Inpatient": "Klinisch",
     "Outpatient": "Poliklinisch",
@@ -67,9 +66,10 @@
     "Unsupplemented": "Niet-gesuppleerd",
     "Subfertile": "Subfertiel",
     "Cousin-niece": "Neef-nicht",
-    "Brother-sister": "Broer-zus"
+    "Brother-sister": "Broer-zus",
+    "Unfaithful": "Ontrouw",
+    "Faithful": "Trouw"
   },
-  
   "compound_terms": {
     "Yes, treated": "Ja, behandeld",
     "Yes, untreated": "Ja, onbehandeld",
@@ -92,7 +92,6 @@
     "Yes, <2 per year": "Ja, <2 per jaar",
     "Yes, ≥2 per year": "Ja, >=2 per jaar"
   },
-  
   "preserve_as_is": [
     "COPD",
     "HIV",
@@ -104,7 +103,6 @@
     "No COPD",
     "MRC"
   ],
-  
   "notes": {
     "encoding": "UTF-8",
     "version": "1.0",

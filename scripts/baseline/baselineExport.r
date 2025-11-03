@@ -254,7 +254,16 @@ rd_names <- vapply(rd_items, function(x) {
   n <- x$name
   if (is.null(n) || is.na(n)) "" else as.character(n)
 }, character(1))
-match_idx <- which(tolower(rd_names) == tolower(rd_target_name))
+
+# Normaliseer beide strings: lowercase en vervang - door _
+normalize_name <- function(name) {
+  tolower(gsub("-", "_", name))
+}
+
+normalized_target <- normalize_name(rd_target_name)
+normalized_names <- sapply(rd_names, normalize_name)
+
+match_idx <- which(normalized_names == normalized_target)
 if (length(match_idx) == 1) {
   repeating_data_id <- rd_items[[match_idx]]$id
   repeating_data_name <- rd_items[[match_idx]]$name
@@ -316,30 +325,54 @@ for (participant_id in names(records_by_participant)) {
   
   if (status_code(existing_response) == 200) {
     existing_content <- content(existing_response, as = "parsed", type = "application/json", encoding = "UTF-8")
-    if (!is.null(existing_content$total_items)) {
-      aantal_bestaand <- length(seq_len(existing_content$total_items))
-    } else {
-      aantal_bestaand <- 0
-    }
+    all_instances_list <- existing_content$`_embedded`$repeatingDataInstance
+    if (is.null(all_instances_list)) all_instances_list <- list()
+    
+    # Filter alleen instances die bij deze repeating data structure (baseline) horen
+    # Gebruik repeating_data_name omdat repeating_data_id NULL is in API response
+    baseline_instances_list <- Filter(function(inst) {
+      !is.null(inst$repeating_data_name) && inst$repeating_data_name == repeating_data_name
+    }, all_instances_list)
+    
+    aantal_bestaand <- length(baseline_instances_list)
+    cat("Total instances:", length(all_instances_list), "| Baseline instances:", aantal_bestaand, "\n")
   } else if (status_code(existing_response) == 404) {
     aantal_bestaand <- 0
+    baseline_instances_list <- list()
   } else {
     stop("Error retrieving repeating data instances for participant ", participant_id,
          ": ", content(existing_response, "text", encoding = "UTF-8"))
   }
 
-  cat("Existing instances for participant", participant_id, ":", aantal_bestaand, "\n")
+  cat("Existing baseline instances for participant", participant_id, ":", aantal_bestaand, "\n")
 
   if (aantal_bestaand < aantal_nodig) {
-    for (j in (aantal_bestaand + 1):aantal_nodig) {
+    # Bepaal het hoogste bestaande instance nummer uit de namen
+    max_existing_index <- 0
+    if (aantal_bestaand > 0) {
+      for (inst in baseline_instances_list) {
+        inst_name <- inst$name
+        if (!is.null(inst_name) && grepl(" - [0-9]+$", inst_name)) {
+          suffix <- sub("^.* - ([0-9]+)$", "\\1", inst_name)
+          idx <- as.integer(suffix)
+          if (!is.na(idx) && idx > max_existing_index) {
+            max_existing_index <- idx
+          }
+        }
+      }
+    }
+    cat("Highest existing baseline instance index:", max_existing_index, "\n")
+    
+    aantal_aanmaken <- aantal_nodig - aantal_bestaand
+    for (i in seq_len(aantal_aanmaken)) {
+      j <- max_existing_index + i
       rep_name <- paste("Visit -", j)
       if (exists("epic2castor_status_update")) {
         try(epic2castor_status_update(step = "instances", detail = paste("Create instance", rep_name, "for", participant_id)), silent = TRUE)
       }
-      # Castor API expects the custom instance name as 'name' (not 'repeating_data_name_custom')
       instance_payload <- list(
         repeating_data_id = repeating_data_id,
-        name = rep_name
+        repeating_data_name_custom = rep_name
       )
       
       instance_url <- paste0(base_url, "/api/study/", study_id, "/participant/", participant_id, "/repeating-data-instance")
@@ -356,43 +389,8 @@ for (participant_id in names(records_by_participant)) {
         print(err_text)
         stop("Error in Repeating Data Instance Creation")
       } else {
-        # Log the actual name returned by the API so we can verify it's applied
-        inst_created <- tryCatch(
-          content(instance_response, as = "parsed", type = "application/json", encoding = "UTF-8"),
-          error = function(e) NULL
-        )
-        returned_name <- if (!is.null(inst_created) && !is.null(inst_created$name)) inst_created$name else "<unknown>"
         cat("Repeating data instance successfully created for participant", participant_id, 
-            "with requested name:", rep_name, "| API returned name:", returned_name, "\n")
-
-        # If the API ignored the requested custom name, try to update the instance name via PATCH
-        if (!identical(returned_name, rep_name)) {
-          inst_id <- if (!is.null(inst_created) && !is.null(inst_created$id)) inst_created$id else NULL
-          if (!is.null(inst_id)) {
-            rename_url <- paste0(api_base_url, "/study/", study_id, "/repeating-data-instance/", inst_id)
-            rename_body <- list(name = rep_name)
-            rename_resp <- PATCH(
-              rename_url,
-              add_headers(
-                Authorization = paste("Bearer", access_token),
-                `Content-Type` = "application/json",
-                Accept = "application/hal+json"
-              ),
-              body = toJSON(rename_body, auto_unbox = TRUE),
-              encode = "json"
-            )
-            if (status_code(rename_resp) %in% c(200, 204)) {
-              cat("Instance name updated via PATCH to:", rep_name, "\n")
-              if (exists("epic2castor_status_update")) {
-                try(epic2castor_status_update(step = "instances", detail = paste("Renamed to", rep_name)), silent = TRUE)
-              }
-            } else {
-              cat("Failed to update instance name via PATCH. Response:", content(rename_resp, "text", encoding = "UTF-8"), "\n")
-            }
-          } else {
-            cat("No instance id returned; cannot rename instance after creation.\n")
-          }
-        }
+            "with name:", rep_name, "\n")
       }
     }
   } else {
@@ -452,8 +450,22 @@ for (participant_id in names(records_by_participant)) {
     cat("Error retrieving instances for participant", participant_id, "\n")
     next
   }
-  instances <- content(instances_response, as = "parsed", type = "application/json", encoding = "UTF-8")
-  id_by_index <- build_instance_index_map(instances)
+  instances_content <- content(instances_response, as = "parsed", type = "application/json", encoding = "UTF-8")
+  
+  # Filter alleen baseline instances
+  all_instances_list <- instances_content$`_embedded`$repeatingDataInstance
+  if (is.null(all_instances_list)) all_instances_list <- list()
+  
+  # Gebruik repeating_data_name omdat repeating_data_id NULL is in API response
+  baseline_instances_list <- Filter(function(inst) {
+    !is.null(inst$repeating_data_name) && inst$repeating_data_name == repeating_data_name
+  }, all_instances_list)
+  
+  # Maak een aangepaste payload met alleen baseline instances
+  filtered_instances <- list(`_embedded` = list(repeatingDataInstance = baseline_instances_list))
+  id_by_index <- build_instance_index_map(filtered_instances)
+  
+  cat("Total instances:", length(all_instances_list), "| Baseline instances:", length(baseline_instances_list), "\n")
   cat("Instance index mapping for participant", participant_id, ":",
       paste(sprintf("%s=%s", names(id_by_index), unlist(id_by_index)), collapse = ", "), "\n")
   

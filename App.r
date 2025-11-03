@@ -620,20 +620,10 @@ ui <- fluidPage(
                         ),
                         tags$ul(class = "dropdown-menu",
                           tags$li(actionLink("update_credentials", "Update credentials", class = "menu-link")),
-                          tags$li(actionLink("refresh_castor", "Refresh metadata", class = "menu-link"))
-                        )
-                      ),
-                      div(class = "dropdown menu-group",
-                        tags$button(
-                          class = "btn btn-default dropdown-toggle menu-toggle",
-                          type = "button",
-                          `data-toggle` = "dropdown",
-                          `aria-haspopup` = "true",
-                          `aria-expanded` = "false",
-                          "Outputs ",
-                          tags$span(class = "caret")
-                        ),
-                        tags$ul(class = "dropdown-menu",
+                          tags$li(actionLink("refresh_castor", "Refresh metadata", class = "menu-link")),
+                          tags$li(class = "divider"),
+                          tags$li(actionLink("manage_medical_dict", "Medical Dictionary", class = "menu-link")),
+                          tags$li(class = "divider"),
                           tags$li(actionLink("run_main_script", "Create CSVs", class = "menu-link")),
                           tags$li(actionLink("run_upload_script", "Castor upload", class = "menu-link"))
                         )
@@ -769,6 +759,10 @@ server <- function(input, output, session) {
   
   # FASE 6.5.2: Track vorige tabel voor tab synchronisatie
   previous_table <- reactiveVal(NULL)
+  
+  # Track laatst actieve tab naam GLOBAAL (voor alle tabellen die tabs delen)
+  # Omdat elements, checkboxes en radiobuttons allemaal dezelfde tab structuur delen
+  lastActiveTabName <- reactiveVal(NULL)
   
   # Helper functie - krijg data van actieve tab
   get_active_tab_data <- function() {
@@ -1275,24 +1269,12 @@ server <- function(input, output, session) {
   # ============================================================================
   app_ready <- reactiveVal(FALSE)
   
-  # Fallback: hide loading screen after timeout in case table_ready is not triggered
-  observe({
-    # Wait a bit for normal initialization
-    invalidateLater(2000, session)  # 2 seconds
-    
-    isolate({
-      if (!app_ready()) {
-        cat("[Startup] Fallback: Hiding loading screen after timeout\n")
-        session$sendCustomMessage("hideLoadingScreen", list())
-        app_ready(TRUE)
-      }
-    })
-  })
-  
   # Hide loading screen once the table is fully initialized
+  # This is triggered from JavaScript after the DataTable draw event
   observeEvent(input$table_ready, {
     # Ensure this only runs once
     if (!app_ready() && isTRUE(input$table_ready)) {
+      cat("[Startup] Table ready signal received, hiding loading screen\n")
       # Send message to JavaScript to hide loading screen
       session$sendCustomMessage("hideLoadingScreen", list())
       
@@ -2063,6 +2045,18 @@ server <- function(input, output, session) {
     # Update active tab
     tabState$activeTab <- new_tab_id
     
+    # Onthoud welke tab actief is GLOBAAL (voor alle tabellen)
+    if (!is.null(input$file)) {
+      # Zoek de tab naam op basis van tab ID
+      tab_idx <- which(sapply(tabState$tabs, function(t) t$id == new_tab_id))
+      if (length(tab_idx) > 0) {
+        active_tab_info <- tabState$tabs[[tab_idx]]
+        if (!is.null(active_tab_info)) {
+          lastActiveTabName(active_tab_info$name)
+        }
+      }
+    }
+    
     # Render data van nieuwe tab
     active_data <- get_active_tab_data()
     if (!is.null(active_data)) {
@@ -2340,8 +2334,20 @@ server <- function(input, output, session) {
     # Reset tab click state in JavaScript to prevent stale tab click tracking
     session$sendCustomMessage("resetTabClickState", list())
     
+    # Haal prev_table op VOORDAT we iets doen
+    prev_table <- isolate(previous_table())
+    
+    # NIEUWE CODE: Onthoud de actieve tab naam GLOBAAL voordat we switchen
+    if (!is.null(prev_table) && !is.null(tabState$activeTab) && length(tabState$tabs) > 0) {
+      # Zoek de huidige actieve tab naam
+      active_tab_idx <- which(sapply(tabState$tabs, function(t) t$id == tabState$activeTab))
+      if (length(active_tab_idx) > 0) {
+        active_tab_name <- tabState$tabs[[active_tab_idx]]$name
+        lastActiveTabName(active_tab_name)
+      }
+    }
+    
     # FASE 6.5.2: Sla tabs van VORIGE tabel op
-    prev_table <- previous_table()
     if (!is.null(prev_table) && is_selectable_table(prev_table) && length(tabState$tabs) > 0) {
       # FASE 6.5.4: Consolideer ALLEEN voor elements
       # Voor radiobuttons/checkboxes: hun data wordt beheerd door auto-fill functies
@@ -2442,7 +2448,24 @@ server <- function(input, output, session) {
       }
     }
     
-    tabState$activeTab <- tabState$tabs[[1]]$id
+    # Selecteer de actieve tab: probeer de laatst actieve tab naam te herstellen
+    last_active_tab_name <- isolate(lastActiveTabName())
+    
+    if (!is.null(last_active_tab_name) && length(tabState$tabs) > 0) {
+      # Zoek de tab met deze naam
+      matching_tab_idx <- which(sapply(tabState$tabs, function(t) t$name == last_active_tab_name))
+      if (length(matching_tab_idx) > 0) {
+        # Gevonden! Gebruik deze tab
+        tabState$activeTab <- tabState$tabs[[matching_tab_idx[1]]]$id
+      } else {
+        # Niet gevonden (bijv. tab is verwijderd), gebruik eerste tab
+        tabState$activeTab <- tabState$tabs[[1]]$id
+      }
+    } else {
+      # Geen vorige tab bekend, gebruik eerste tab
+      tabState$activeTab <- tabState$tabs[[1]]$id
+    }
+    
     tabState$nextTabId <- length(tabState$tabs) + 1
     
     # Update previous_table tracker
@@ -2815,14 +2838,26 @@ server <- function(input, output, session) {
             } else eta_txt <- NULL
 
             if (!runnerState$error_detected) {
-              output$baseline_progressbar <- renderUI({
-                div(class = "progress", style = "height: 20px; background:#eee;",
-                    div(class = "progress-bar progress-bar-striped active", role = "progressbar",
-                        style = paste0("width: ", pct, "%;"),
-                        `aria-valuemin` = 0, `aria-valuemax` = 100,
-                        paste0(round(pct), "%"))
-                )
-              })
+              # Check if done: green bar, no animation
+              if (!is.na(step_lc) && identical(step_lc, "done")) {
+                output$baseline_progressbar <- renderUI({
+                  div(class = "progress", style = "height: 20px; background:#eee;",
+                      div(class = "progress-bar progress-bar-success", role = "progressbar",
+                          style = paste0("width: 100%; background-color: #5cb85c;"),
+                          `aria-valuemin` = 0, `aria-valuemax` = 100,
+                          "100%")
+                  )
+                })
+              } else {
+                output$baseline_progressbar <- renderUI({
+                  div(class = "progress", style = "height: 20px; background:#eee;",
+                      div(class = "progress-bar progress-bar-striped active", role = "progressbar",
+                          style = paste0("width: ", pct, "%;"),
+                          `aria-valuemin` = 0, `aria-valuemax` = 100,
+                          paste0(round(pct), "%"))
+                  )
+                })
+              }
             }
             line <- paste(step, if (nzchar(detail)) paste("-", detail) else "", if (!is.null(eta_txt)) paste("(", eta_txt, ")") else "")
             if (!runnerState$error_detected) output$baseline_status_line <- renderText({ line })
@@ -2876,6 +2911,7 @@ server <- function(input, output, session) {
           
           observerHandle$destroy()
           runnerState$proc <- NULL
+          runnerState$observer <- NULL
           
           # Call on_complete if script completed successfully OR exit status is 0
           if (!isTRUE(runnerState$canceled) && (script_completed_successfully || (!is.na(exit_status) && exit_status == 0)) && !is.null(on_complete)) {
@@ -2886,6 +2922,236 @@ server <- function(input, output, session) {
         output$baseline_status_line <- renderText({ paste("Monitor error:", conditionMessage(e)) })
         updateRunnerFooter(TRUE)
         observerHandle$destroy()
+        runnerState$proc <- NULL
+        runnerState$observer <- NULL
+        if (!is.null(on_complete)) later::later(on_complete, delay = 0.05)
+      })
+    })
+    runnerState$observer <- observerHandle
+  }
+
+  # Runner helper: execute the Follow-up script with monitoring; on_complete may trigger follow-up
+  run_follow_up_script <- function(on_complete = NULL) {
+    removeModalSafe()
+    updateRunnerFooter(FALSE)
+    runnerState$canceled <- FALSE
+    {
+      run_dir <- getOption("epic2castor.logdir", Sys.getenv("EPIC2CASTOR_LOGDIR", ""))
+      status_path <- if (nzchar(run_dir)) file.path(run_dir, "status.json") else "status.json"
+      if (file.exists(status_path)) try(file.remove(status_path), silent = TRUE)
+    }
+    showModalSafe(modalDialog(
+      title = "Running Follow-up",
+      tagList(
+        uiOutput("follow_up_progressbar"),
+        div(style = "margin-top:8px;", textOutput("follow_up_status_line"))
+      ),
+      footer = uiOutput("runner_footer"),
+      easyClose = FALSE,
+      size = "l"
+    ))
+
+    scriptPath <- file.path(epc_path("scripts_dir"), "follow_up", "follow_up.r")
+    proc <- process$new(
+      "Rscript",
+      args = c(scriptPath),
+      stdout = "|",
+      stderr = "|",
+      env = c(EPIC2CASTOR_LOGDIR = getOption("epic2castor.logdir", Sys.getenv("EPIC2CASTOR_LOGDIR", "")))
+    )
+    runnerState$proc <- proc
+    runnerState$kind <- "follow_up"
+    runnerState$on_complete_handler <- on_complete
+    runnerState$error_detected <- FALSE
+    runnerState$error_message <- NULL
+
+    run_dir <- getOption("epic2castor.logdir", Sys.getenv("EPIC2CASTOR_LOGDIR", ""))
+    status_path <- if (nzchar(run_dir)) file.path(run_dir, "status.json") else "status.json"
+
+    output$follow_up_progressbar <- renderUI({
+      pct <- 0
+      div(class = "progress", style = "height: 20px; background:#eee;",
+          div(class = "progress-bar progress-bar-striped active", role = "progressbar",
+              style = paste0("width: ", pct, "%;"),
+              `aria-valuemin` = 0, `aria-valuemax` = 100,
+              paste0(pct, "%"))
+      )
+    })
+    output$follow_up_status_line <- renderText({ "Starting…" })
+    
+    # Track if we've seen the success marker
+    script_success_seen <- FALSE
+
+    observerHandle <- observe({
+      reactiveTimer(500)()
+      tryCatch({
+        out_lines <- character(0)
+        err_lines <- character(0)
+        try({
+          out_lines <- proc$read_output_lines()
+          err_lines <- proc$read_error_lines()
+        }, silent = TRUE)
+        if (length(out_lines)) lapply(out_lines, function(x) cat(paste0("[Follow-up][OUT] ", x, "\n")))
+        if (length(err_lines)) lapply(err_lines, function(x) cat(paste0("[Follow-up][ERR] ", x, "\n")))
+        combined_lines <- c(out_lines, err_lines)
+        
+        # Check for success marker in current output
+        if (length(combined_lines) && any(grepl("EPIC2CASTOR::DONE", combined_lines, fixed = TRUE))) {
+          script_success_seen <<- TRUE
+          cat("[Follow-up] SUCCESS marker detected in output\n")
+        }
+        
+        if (length(combined_lines)) {
+          err_line <- detect_error_line(combined_lines)
+          if (!is.null(err_line)) update_runner_error(err_line, "follow_up_status_line", "follow_up_progressbar")
+        }
+
+        # Poll status.json
+        if (file.exists(status_path)) {
+          st <- try(jsonlite::fromJSON(status_path), silent = TRUE)
+          if (!inherits(st, "try-error") && is.list(st)) {
+            # Percent/current/total defensively parsed; compute pct from current/total when useful
+            cur <- suppressWarnings(as.numeric(st$current))
+            tot <- suppressWarnings(as.numeric(st$total))
+            pct <- suppressWarnings(as.numeric(st$percent))
+            if (length(cur) != 1L || is.na(cur) || !is.finite(cur)) cur <- NA_real_
+            if (length(tot) != 1L || is.na(tot) || !is.finite(tot) || tot <= 0) tot <- NA_real_
+            if (length(pct) != 1L || is.na(pct) || !is.finite(pct)) pct <- NA_real_
+            # Prefer computed percent if current/total available
+            if (is.finite(cur) && is.finite(tot)) pct <- 100 * cur / tot
+            if (is.na(pct)) pct <- 0
+            if (pct < 0) pct <- 0
+            if (pct > 100) pct <- 100
+
+            # Step/detail coerced to single strings
+            step <- st$step
+            if (is.null(step) || length(step) != 1L || !nzchar(as.character(step))) step <- "running" else step <- as.character(step)
+            step_lc <- tolower(step)
+            if (!is.na(step_lc) && identical(step_lc, "done")) updateRunnerFooter(TRUE)
+            detail <- st$detail
+            if (is.null(detail) || length(detail) == 0L) detail <- "" else detail <- as.character(detail)[1]
+
+            # ETA defensively parsed to numeric seconds
+            eta_val <- suppressWarnings(as.numeric(st$eta_s))
+            if (!is.null(eta_val) && length(eta_val) == 1L && is.finite(eta_val)) {
+              eta_txt <- paste0("ETA ", format(round(eta_val), scientific = FALSE), "s")
+            } else eta_txt <- NULL
+
+            if (!runnerState$error_detected) {
+              # Check if done: green bar, no animation
+              if (!is.na(step_lc) && identical(step_lc, "done")) {
+                output$follow_up_progressbar <- renderUI({
+                  div(class = "progress", style = "height: 20px; background:#eee;",
+                      div(class = "progress-bar progress-bar-success", role = "progressbar",
+                          style = paste0("width: 100%; background-color: #5cb85c;"),
+                          `aria-valuemin` = 0, `aria-valuemax` = 100,
+                          "100%")
+                  )
+                })
+              } else {
+                output$follow_up_progressbar <- renderUI({
+                  div(class = "progress", style = "height: 20px; background:#eee;",
+                      div(class = "progress-bar progress-bar-striped active", role = "progressbar",
+                          style = paste0("width: ", pct, "%;"),
+                          `aria-valuemin` = 0, `aria-valuemax` = 100,
+                          paste0(round(pct), "%"))
+                  )
+                })
+              }
+            }
+            line <- paste(step, if (nzchar(detail)) paste("-", detail) else "", if (!is.null(eta_txt)) paste("(", eta_txt, ")") else "")
+            if (!runnerState$error_detected) output$follow_up_status_line <- renderText({ line })
+          }
+        }
+
+        # Done: show Close button and stop observer
+        if (!proc$is_alive()) {
+          updateRunnerFooter(TRUE)
+          
+          # Check if we have "EPIC2CASTOR::DONE" marker for successful completion
+          # First check if we saw it during polling
+          script_completed_successfully <- script_success_seen
+          
+          # Also check leftover lines just in case
+          try({
+            leftover_out <- proc$read_output_lines()
+            leftover_err <- proc$read_error_lines()
+            if (length(leftover_out)) lapply(leftover_out, function(x) cat(paste0("[Follow-up][OUT] ", x, "\n")))
+            if (length(leftover_err)) lapply(leftover_err, function(x) cat(paste0("[Follow-up][ERR] ", x, "\n")))
+            leftover_lines <- c(leftover_out, leftover_err)
+            
+            # Check for success marker in leftover lines
+            if (!script_completed_successfully && any(grepl("EPIC2CASTOR::DONE", leftover_lines, fixed = TRUE))) {
+              script_completed_successfully <- TRUE
+              cat("[Follow-up] SUCCESS marker detected in leftover lines\n")
+            }
+            
+            if (length(leftover_lines)) {
+              err_line <- detect_error_line(leftover_lines)
+              if (!is.null(err_line)) update_runner_error(err_line, "follow_up_status_line", "follow_up_progressbar")
+            }
+          }, silent = TRUE)
+          
+          exit_status <- tryCatch(proc$get_exit_status(), error = function(e) NA_integer_)
+          if (is.null(exit_status)) exit_status <- NA_integer_
+          
+          # Check if a missing file was detected (which should trigger the upload modal)
+          has_missing_file <- !is.null(isolate(runnerState$missing_file_info))
+          
+          # Windows crash codes (0xC0000005 = -1073741819): negeer als script succesvol was
+          is_windows_crash <- !is.na(exit_status) && exit_status == -1073741819
+          
+          # Only report error if:
+          # - script didn't complete successfully AND
+          # - no error was already detected AND
+          # - no missing file was detected AND
+          # - not a Windows crash after successful completion
+          if (!script_completed_successfully && (is.na(exit_status) || exit_status != 0) && !runnerState$error_detected && !has_missing_file && !is_windows_crash) {
+            msg <- sprintf("Follow-up failed (exit %s). Check logs for details.", as.character(exit_status))
+            update_runner_error(msg, "follow_up_status_line", "follow_up_progressbar")
+          }
+          
+          # Only show notification for non-zero exit if script didn't complete successfully and no missing file and not a Windows crash
+          if (!script_completed_successfully && !is.na(exit_status) && exit_status != 0 && !has_missing_file && !is_windows_crash) {
+            tryCatch({
+              safeNotify(sprintf("Follow-up script exited with status %s", as.character(exit_status)), "error")
+            }, error = function(e) {
+              cat(sprintf("[Follow-up] Could not show notification: %s\n", conditionMessage(e)))
+            })
+          }
+          
+          observerHandle$destroy()
+          runnerState$proc <- NULL
+          runnerState$observer <- NULL
+          
+          # Debug: log completion status
+          cat(sprintf("[Follow-up] Script completion status:\n"))
+          cat(sprintf("  - script_completed_successfully: %s\n", script_completed_successfully))
+          cat(sprintf("  - exit_status: %s\n", as.character(exit_status)))
+          cat(sprintf("  - is_windows_crash: %s\n", is_windows_crash))
+          cat(sprintf("  - canceled: %s\n", isTRUE(runnerState$canceled)))
+          cat(sprintf("  - on_complete is null: %s\n", is.null(on_complete)))
+          
+          # Call on_complete if script completed successfully OR exit status is 0 (even with Windows crash)
+          should_continue <- !isTRUE(runnerState$canceled) && 
+                            (script_completed_successfully || (!is.na(exit_status) && exit_status == 0)) && 
+                            !is.null(on_complete)
+          
+          cat(sprintf("  - should_continue: %s\n", should_continue))
+          
+          if (should_continue) {
+            cat("[Follow-up] Calling on_complete callback\n")
+            later::later(on_complete, delay = 0.05)
+          } else {
+            cat("[Follow-up] NOT calling on_complete callback\n")
+          }
+        }
+      }, error = function(e) {
+        output$follow_up_status_line <- renderText({ paste("Monitor error:", conditionMessage(e)) })
+        updateRunnerFooter(TRUE)
+        observerHandle$destroy()
+        runnerState$proc <- NULL
+        runnerState$observer <- NULL
         if (!is.null(on_complete)) later::later(on_complete, delay = 0.05)
       })
     })
@@ -2949,22 +3215,12 @@ server <- function(input, output, session) {
           out_lines <- proc$read_output_lines()
           err_lines <- proc$read_error_lines()
         }, silent = TRUE)
-        if (length(out_lines)) {
-          cat("[DEBUG] Got", length(out_lines), "output lines\n")
-          lapply(out_lines, function(x) cat(paste0("[Biobank][OUT] ", x, "\n")))
-        }
-        if (length(err_lines)) {
-          cat("[DEBUG] Got", length(err_lines), "error lines\n")
-          lapply(err_lines, function(x) cat(paste0("[Biobank][ERR] ", x, "\n")))
-        }
+        if (length(out_lines)) lapply(out_lines, function(x) cat(paste0("[Biobank][OUT] ", x, "\n")))
+        if (length(err_lines)) lapply(err_lines, function(x) cat(paste0("[Biobank][ERR] ", x, "\n")))
         combined_lines <- c(out_lines, err_lines)
-        cat("[DEBUG] Total combined lines:", length(combined_lines), "\n")
         if (length(combined_lines)) {
-          cat("[DEBUG] Calling detect_error_line\n")
           err_line <- detect_error_line(combined_lines)
-          cat("[DEBUG] detect_error_line returned:", if(is.null(err_line)) "NULL" else err_line, "\n")
           if (!is.null(err_line)) {
-            cat("[DEBUG] Calling update_runner_error\n")
             update_runner_error(err_line, "biobank_status_line", "biobank_progressbar")
           }
         }
@@ -2996,14 +3252,26 @@ server <- function(input, output, session) {
             } else eta_txt <- NULL
 
             if (!runnerState$error_detected) {
-              output$biobank_progressbar <- renderUI({
-                div(class = "progress", style = "height: 20px; background:#eee;",
-                    div(class = "progress-bar progress-bar-striped active", role = "progressbar",
-                        style = paste0("width: ", pct, "%;"),
-                        `aria-valuemin` = 0, `aria-valuemax` = 100,
-                        paste0(round(pct), "%"))
-                )
-              })
+              # Check if done: green bar, no animation
+              if (!is.na(step_lc) && identical(step_lc, "done")) {
+                output$biobank_progressbar <- renderUI({
+                  div(class = "progress", style = "height: 20px; background:#eee;",
+                      div(class = "progress-bar progress-bar-success", role = "progressbar",
+                          style = paste0("width: 100%; background-color: #5cb85c;"),
+                          `aria-valuemin` = 0, `aria-valuemax` = 100,
+                          "100%")
+                  )
+                })
+              } else {
+                output$biobank_progressbar <- renderUI({
+                  div(class = "progress", style = "height: 20px; background:#eee;",
+                      div(class = "progress-bar progress-bar-striped active", role = "progressbar",
+                          style = paste0("width: ", pct, "%;"),
+                          `aria-valuemin` = 0, `aria-valuemax` = 100,
+                          paste0(round(pct), "%"))
+                  )
+                })
+              }
             }
             line <- paste(step, if (nzchar(detail)) paste("-", detail) else "", if (!is.null(eta_txt)) paste("(", eta_txt, ")") else "")
             if (!runnerState$error_detected) output$biobank_status_line <- renderText({ line })
@@ -3011,38 +3279,58 @@ server <- function(input, output, session) {
         }
 
         if (!proc$is_alive()) {
-          cat("[DEBUG] Biobank process is no longer alive\n")
           updateRunnerFooter(TRUE)
+          
+          # Check if we have "EPIC2CASTOR::DONE" marker for successful completion
+          script_completed_successfully <- FALSE
+          
           try({
             leftover_out <- proc$read_output_lines()
             leftover_err <- proc$read_error_lines()
-            cat("[DEBUG] Leftover output lines:", length(leftover_out), "\n")
-            cat("[DEBUG] Leftover error lines:", length(leftover_err), "\n")
             if (length(leftover_out)) lapply(leftover_out, function(x) cat(paste0("[Biobank][OUT] ", x, "\n")))
             if (length(leftover_err)) lapply(leftover_err, function(x) cat(paste0("[Biobank][ERR] ", x, "\n")))
             leftover_lines <- c(leftover_out, leftover_err)
+            
+            # Check for success marker
+            if (any(grepl("EPIC2CASTOR::DONE", leftover_lines, fixed = TRUE))) {
+              script_completed_successfully <- TRUE
+            }
+            
             if (length(leftover_lines)) {
-              cat("[DEBUG] Calling detect_error_line on leftover lines\n")
               err_line <- detect_error_line(leftover_lines)
-              cat("[DEBUG] detect_error_line returned:", if(is.null(err_line)) "NULL" else err_line, "\n")
               if (!is.null(err_line)) {
-                cat("[DEBUG] Calling update_runner_error on leftover\n")
                 update_runner_error(err_line, "biobank_status_line", "biobank_progressbar")
               }
             }
           }, silent = TRUE)
+          
           exit_status <- tryCatch(proc$get_exit_status(), error = function(e) NA_integer_)
-          cat("[DEBUG] Exit status:", exit_status, "\n")
           if (is.null(exit_status)) exit_status <- NA_integer_
-          if ((is.na(exit_status) || exit_status != 0) && !runnerState$error_detected) {
+          
+          # Windows crash codes: negeer als script succesvol was
+          is_windows_crash <- !is.na(exit_status) && exit_status == -1073741819
+          
+          # Only report error if script didn't complete successfully and not a Windows crash
+          if (!script_completed_successfully && (is.na(exit_status) || exit_status != 0) && !runnerState$error_detected && !is_windows_crash) {
             msg <- sprintf("Biobank script failed (exit %s). Check logs for details.", as.character(exit_status))
-            cat("[DEBUG] Calling update_runner_error with exit status message\n")
             update_runner_error(msg, "biobank_status_line", "biobank_progressbar")
           }
-          if (!is.na(exit_status) && exit_status != 0) safeNotify(sprintf("Biobank script exited with status %s", as.character(exit_status)), "error")
+          
+          # Only show notification for non-zero exit if script didn't complete successfully and not a Windows crash
+          if (!script_completed_successfully && !is.na(exit_status) && exit_status != 0 && !is_windows_crash) {
+            tryCatch({
+              safeNotify(sprintf("Biobank script exited with status %s", as.character(exit_status)), "error")
+            }, error = function(e) {
+              cat(sprintf("[Biobank] Could not show notification: %s\n", conditionMessage(e)))
+            })
+          }
+          
           observerHandle$destroy()
           runnerState$proc <- NULL
-          if (!isTRUE(runnerState$canceled) && !is.na(exit_status) && exit_status == 0 && !is.null(on_complete)) {
+          runnerState$observer <- NULL
+          
+          # Call on_complete if script completed successfully OR exit status is 0 OR Windows crash after success
+          if (!isTRUE(runnerState$canceled) && (script_completed_successfully || (!is.na(exit_status) && exit_status == 0) || (script_completed_successfully && is_windows_crash)) && !is.null(on_complete)) {
             later::later(on_complete, delay = 0.05)
           }
         }
@@ -3050,6 +3338,8 @@ server <- function(input, output, session) {
         output$biobank_status_line <- renderText({ paste("Monitor error:", conditionMessage(e)) })
         updateRunnerFooter(TRUE)
         observerHandle$destroy()
+        runnerState$proc <- NULL
+        runnerState$observer <- NULL
         if (!isTRUE(runnerState$canceled) && !is.null(on_complete)) later::later(on_complete, delay = 0.05)
       })
     })
@@ -3086,10 +3376,12 @@ server <- function(input, output, session) {
       t <- tasks[[i]]
       if (t == "baseline") {
         run_baseline_script(on_complete = function() run_chain(i + 1))
+      } else if (t == "followup") {
+        run_follow_up_script(on_complete = function() run_chain(i + 1))
       } else if (t == "biobank") {
         run_biobank_script(on_complete = function() run_chain(i + 1))
       } else {
-        # follow-up placeholder, skip for now and continue
+        # unknown task, skip and continue
         run_chain(i + 1)
       }
     }
@@ -3150,7 +3442,7 @@ server <- function(input, output, session) {
     removeModal()
 
     run_one_upload <- function(task, on_done) {
-      implemented <- task %in% c("baseline", "biobank")
+      implemented <- task %in% c("baseline", "biobank", "followup")
       if (!implemented) {
         safeNotify(paste("Upload for", task, "not yet implemented - skipped."), type = "message")
         on_done(); return(invisible(NULL))
@@ -3176,6 +3468,7 @@ server <- function(input, output, session) {
       scriptPath <- switch(task,
            baseline = file.path(epc_path("baseline_scripts_dir"), "baselineExport.r"),
            biobank  = file.path(epc_path("scripts_dir"), "biobank_data", "biobankExport.r"),
+           followup = file.path(epc_path("scripts_dir"), "follow_up", "follow_upExport.r"),
            file.path(epc_path("baseline_scripts_dir"), "baselineExport.r"))
       proc <- process$new(
         "Rscript",
@@ -3256,6 +3549,9 @@ server <- function(input, output, session) {
           if (!proc$is_alive()) {
             updateRunnerFooter(TRUE)
             observerHandle$destroy()
+            # Cleanup: verwijder process en observer uit state om geheugenlek te voorkomen
+            runnerState$observer <- NULL
+            runnerState$proc <- NULL
             # Start volgende taak na korte delay
             if (!isTRUE(runnerState$canceled) && !is.null(on_done)) later::later(on_done, delay = 0.05)
           }
@@ -3263,6 +3559,9 @@ server <- function(input, output, session) {
           output$upload_status_line <- renderText({ paste("Monitor error:", conditionMessage(e)) })
           updateRunnerFooter(TRUE)
           observerHandle$destroy()
+          # Cleanup ook bij error
+          runnerState$observer <- NULL
+          runnerState$proc <- NULL
           if (!isTRUE(runnerState$canceled) && !is.null(on_done)) later::later(on_done, delay = 0.05)
         })
       })
@@ -3418,6 +3717,249 @@ server <- function(input, output, session) {
   })
   
   # ============================================================================
+  # MEDICAL DICTIONARY MANAGER
+  # ============================================================================
+  
+  # Reactive value to store dictionary data
+  medicalDictState <- reactiveValues(
+    data = NULL,
+    modified = FALSE
+  )
+  
+  # Load medical dictionary
+  load_medical_dict_data <- function() {
+    dict_path <- epc_path("medical_terms_dict")
+    if (file.exists(dict_path)) {
+      tryCatch({
+        dict <- jsonlite::fromJSON(dict_path, simplifyVector = FALSE)
+        
+        # Convert to data.table for editing
+        common_terms <- if (!is.null(dict$common_terms)) {
+          data.table(
+            english = names(dict$common_terms),
+            dutch = unlist(dict$common_terms),
+            category = "Common"
+          )
+        } else {
+          data.table(english = character(0), dutch = character(0), category = character(0))
+        }
+        
+        medical_terms <- if (!is.null(dict$medical_terms)) {
+          data.table(
+            english = names(dict$medical_terms),
+            dutch = unlist(dict$medical_terms),
+            category = "Medical"
+          )
+        } else {
+          data.table(english = character(0), dutch = character(0), category = character(0))
+        }
+        
+        combined <- rbindlist(list(common_terms, medical_terms))
+        return(combined)
+      }, error = function(e) {
+        return(data.table(english = character(0), dutch = character(0), category = character(0)))
+      })
+    } else {
+      return(data.table(english = character(0), dutch = character(0), category = character(0)))
+    }
+  }
+  
+  # Save medical dictionary
+  save_medical_dict_data <- function(dict_data) {
+    dict_path <- epc_path("medical_terms_dict")
+    
+    # Convert back to JSON structure
+    common <- dict_data[category == "Common"]
+    medical <- dict_data[category == "Medical"]
+    
+    common_list <- if (nrow(common) > 0) {
+      setNames(as.list(common$dutch), common$english)
+    } else {
+      list()
+    }
+    
+    medical_list <- if (nrow(medical) > 0) {
+      setNames(as.list(medical$dutch), medical$english)
+    } else {
+      list()
+    }
+    
+    dict <- list(
+      common_terms = common_list,
+      medical_terms = medical_list
+    )
+    
+    jsonlite::write_json(dict, dict_path, pretty = TRUE, auto_unbox = TRUE)
+  }
+  
+  # Open medical dictionary manager
+  observeEvent(input$manage_medical_dict, {
+    # Load current dictionary
+    medicalDictState$data <- load_medical_dict_data()
+    medicalDictState$modified <- FALSE
+    
+    showModalSafe(modalDialog(
+      title = "Medical Dictionary Manager",
+      size = "l",
+      div(
+        p("Manage translations used by the auto-fill feature. Add, edit, or remove English-Dutch term pairs."),
+        
+        # Action buttons
+        div(style = "margin-bottom: 15px;",
+          actionButton("add_dict_term", "Add New Term", icon = icon("plus"), 
+                      class = "btn-success btn-sm"),
+          actionButton("delete_dict_terms", "Delete Selected", icon = icon("trash"), 
+                      class = "btn-danger btn-sm"),
+          tags$span(style = "margin-left: 15px; color: #666;",
+            textOutput("dict_term_count", inline = TRUE))
+        ),
+        
+        # Dictionary table
+        div(style = "max-height: 500px; overflow-y: auto;",
+          DT::DTOutput("medical_dict_table")
+        )
+      ),
+      footer = tagList(
+        actionButton("save_medical_dict", "Save Changes", class = "btn-primary"),
+        modalButton("Cancel")
+      ),
+      easyClose = FALSE
+    ))
+  })
+  
+  # Render dictionary table
+  output$medical_dict_table <- DT::renderDT({
+    req(medicalDictState$data)
+    
+    DT::datatable(
+      medicalDictState$data,
+      selection = 'multiple',
+      editable = list(target = 'cell', disable = list(columns = c(2))),  # Make category read-only
+      options = list(
+        pageLength = 20,
+        dom = 'ftp',
+        ordering = TRUE,
+        columnDefs = list(
+          list(className = 'dt-center', targets = 2)
+        )
+      ),
+      colnames = c("English Term", "Dutch Translation", "Category"),
+      rownames = FALSE
+    )
+  })
+  
+  # Display term count
+  output$dict_term_count <- renderText({
+    req(medicalDictState$data)
+    sprintf("Total terms: %d (Common: %d, Medical: %d)",
+            nrow(medicalDictState$data),
+            sum(medicalDictState$data$category == "Common"),
+            sum(medicalDictState$data$category == "Medical"))
+  })
+  
+  # Handle cell edits
+  observeEvent(input$medical_dict_table_cell_edit, {
+    info <- input$medical_dict_table_cell_edit
+    str(info)
+    
+    i <- info$row
+    j <- info$col + 1  # DT uses 0-based indexing
+    v <- info$value
+    
+    medicalDictState$data[i, j] <- v
+    medicalDictState$modified <- TRUE
+  })
+  
+  # Add new term
+  observeEvent(input$add_dict_term, {
+    showModalSafe(modalDialog(
+      title = "Add New Term",
+      textInput("new_term_english", "English Term:", placeholder = "e.g., Yes"),
+      textInput("new_term_dutch", "Dutch Translation:", placeholder = "e.g., Ja"),
+      selectInput("new_term_category", "Category:",
+                 choices = c("Common", "Medical"),
+                 selected = "Common"),
+      footer = tagList(
+        actionButton("confirm_add_term", "Add", class = "btn-primary"),
+        modalButton("Cancel")
+      ),
+      easyClose = FALSE
+    ))
+  })
+  
+  # Confirm add new term
+  observeEvent(input$confirm_add_term, {
+    req(input$new_term_english, input$new_term_dutch)
+    
+    # Check for duplicates
+    if (input$new_term_english %in% medicalDictState$data$english) {
+      showNotification("This English term already exists in the dictionary.", 
+                      type = "warning", duration = 5)
+      return()
+    }
+    
+    # Add new row
+    new_row <- data.table(
+      english = input$new_term_english,
+      dutch = input$new_term_dutch,
+      category = input$new_term_category
+    )
+    
+    medicalDictState$data <- rbindlist(list(medicalDictState$data, new_row))
+    medicalDictState$modified <- TRUE
+    
+    removeModalSafe()
+    showNotification("Term added successfully.", type = "message", duration = 3)
+  })
+  
+  # Delete selected terms
+  observeEvent(input$delete_dict_terms, {
+    req(input$medical_dict_table_rows_selected)
+    
+    selected_rows <- input$medical_dict_table_rows_selected
+    
+    showModalSafe(modalDialog(
+      title = "Confirm Deletion",
+      sprintf("Are you sure you want to delete %d term(s)?", length(selected_rows)),
+      footer = tagList(
+        actionButton("confirm_delete_terms", "Delete", class = "btn-danger"),
+        modalButton("Cancel")
+      ),
+      easyClose = FALSE
+    ))
+  })
+  
+  # Confirm delete
+  observeEvent(input$confirm_delete_terms, {
+    req(input$medical_dict_table_rows_selected)
+    
+    selected_rows <- input$medical_dict_table_rows_selected
+    medicalDictState$data <- medicalDictState$data[-selected_rows]
+    medicalDictState$modified <- TRUE
+    
+    removeModalSafe()
+    showNotification(sprintf("Deleted %d term(s).", length(selected_rows)), 
+                    type = "message", duration = 3)
+  })
+  
+  # Save dictionary
+  observeEvent(input$save_medical_dict, {
+    req(medicalDictState$data)
+    
+    tryCatch({
+      save_medical_dict_data(medicalDictState$data)
+      medicalDictState$modified <- FALSE
+      
+      removeModalSafe()
+      showNotification("Medical dictionary saved successfully!", 
+                      type = "message", duration = 5)
+    }, error = function(e) {
+      showNotification(paste("Error saving dictionary:", e$message), 
+                      type = "error", duration = 10)
+    })
+  })
+  
+  # ============================================================================
   # AUTOFILL: Auto-Fill EPIC Values Functionality
   # ============================================================================
   
@@ -3452,8 +3994,19 @@ server <- function(input, output, session) {
   autofillState <- reactiveValues(
     results = NULL,
     original_data = NULL,
-    table_name = NULL
+    table_name = NULL,
+    updated_data_to_render = NULL  # Voor het triggeren van table re-render na autofill
   )
+  
+  # Observer: render tabel wanneer autofill data is bijgewerkt
+  observeEvent(autofillState$updated_data_to_render, {
+    req(autofillState$updated_data_to_render, input$file)
+    
+    render_table(autofillState$updated_data_to_render, input$file, mode = "full")
+    
+    # Reset na render
+    autofillState$updated_data_to_render <- NULL
+  })
   
   # Handle autofill button click
   observeEvent(input$autofill_epic_values, {
@@ -3756,6 +4309,9 @@ server <- function(input, output, session) {
     current_file <- isolate(input$file)
     current_toggle <- isolate(input$toggle)
     
+    # Capture active tab data before entering later() block
+    captured_active_data <- isolate(get_active_tab_data())
+    
     # Wait a moment for the selected rows input to be set
     later::later(function() {
       # Use captured selected_indices
@@ -3773,38 +4329,42 @@ server <- function(input, output, session) {
       
       # Apply changes to mappingData using apply_approved_matches function
       tryCatch({
-        current_data <- mappingData[[table_name]]
+        # FASE 6 FIX: Gebruik captured actieve tab data
+        current_data <- captured_active_data
+        if (is.null(current_data)) {
+          showModalSafe(modalDialog(
+            title = "Error",
+            "Could not retrieve active tab data.",
+            easyClose = TRUE
+          ))
+          return()
+        }
+        
+        # Bepaal de kolom naam voor de castor waarde (kolom_toevoeging voor checkboxes/radiobuttons)
+        castor_col <- if (table_name %in% c("waarde_checkboxes", "waarde_radiobuttons")) {
+          "kolom_toevoeging"
+        } else {
+          "kolom_toevoeging"  # default
+        }
         
         # Use apply_approved_matches from export_approved.r
-        updated_data <- apply_approved_matches(selected_rows, current_data, table_name)
+        updated_data <- apply_approved_matches(current_data, selected_rows, castor_col)
         
         applied_count <- nrow(selected_rows)
         
-        applied_count <- nrow(selected_rows)
-        
-        cat(sprintf("[DEBUG] Applied %d matches using apply_approved_matches\n", applied_count))
-        cat(sprintf("[DEBUG] First 3 rows after update:\n"))
-        print(head(updated_data[, .(Element, waarde)], 3))
-        
-        # Update mappingData
-        mappingData[[table_name]] <<- updated_data
-        cat(sprintf("[DEBUG] Updated mappingData[[%s]]\n", table_name))
-        
-        # Also update the active tab data so UI reflects changes immediately
-        # Use the captured tabs list to find active index, then update reactiveVal
+        # FASE 6 FIX: Update actieve tab data (NIET mappingData direct)
+        # mappingData wordt pas bijgewerkt bij save via consolidate_tabs_with_metadata
         if (!is.null(active_tab_id) && length(current_tabs) > 0) {
-          cat(sprintf("[DEBUG] active_tab_id=%s, current_tabs length=%d\n", active_tab_id, length(current_tabs)))
           active_idx <- which(sapply(current_tabs, function(t) t$id == active_tab_id))
-          cat(sprintf("[DEBUG] Found active_idx=%d\n", active_idx))
           if (length(active_idx) > 0) {
             # Update the tab's data in the captured list
             current_tabs[[active_idx]]$data <- updated_data
             # Write back to the reactive value
             tabState$tabs <- current_tabs
-            cat("[DEBUG] Updated tabState$tabs\n")
+            
+            # Trigger table re-render via reactive value
+            autofillState$updated_data_to_render <- updated_data
           }
-        } else {
-          cat("[DEBUG] Skipped tab update: active_tab_id or current_tabs is NULL/empty\n")
         }
         
         # Add approved API translations to medical dictionary
@@ -3816,8 +4376,9 @@ server <- function(input, output, session) {
         # Trigger table refresh (use captured value + 1)
         relatedDataUpdated(current_related_data + 1)
         
-        # CRITICAL: Force UI refresh by incrementing dedicated trigger
-        forceTableRefresh(isolate(forceTableRefresh()) + 1)
+        # De tabState$tabs is nu bijgewerkt, en omdat render_table() reactief is
+        # op get_active_tab_data() (die tabState gebruikt), zou de tabel automatisch
+        # moeten updaten. Als dat niet werkt, kunnen we een dedicated trigger toevoegen.
         
         # Close modal and show success
         removeModalSafe()
@@ -4063,6 +4624,36 @@ server <- function(input, output, session) {
         }
       }
     }
+    
+    # FASE 6.5.6: Cleanup - verwijder orphaned checkbox rijen
+    # (rijen waarvan het Element niet meer bestaat in elements_all)
+    if (nrow(current_checkbox) > 0) {
+      # Maak lijst van bestaande elements per tab (of zonder tab)
+      if ("tab_name_meta" %in% names(elements_all)) {
+        # Tab-aware cleanup
+        valid_elements <- elements_all[!is.na(Element) & Element != "", 
+                                       .(Element, tab_name_meta, tab_order_meta)]
+        
+        # FASE 6.5.6: Zorg ervoor dat de kolom types overeenkomen
+        # Forceer correcte types in beide datasets voor de merge
+        if ("tab_name_meta" %in% names(current_checkbox)) {
+          current_checkbox[, tab_name_meta := as.character(tab_name_meta)]
+          current_checkbox[, tab_order_meta := as.integer(tab_order_meta)]
+        }
+        valid_elements[, tab_name_meta := as.character(tab_name_meta)]
+        valid_elements[, tab_order_meta := as.integer(tab_order_meta)]
+        
+        # Filter checkboxes: behoud alleen rijen waarvan Element+tab bestaat in elements
+        current_checkbox <- merge(current_checkbox, valid_elements, 
+                                 by = c("Element", "tab_name_meta", "tab_order_meta"), 
+                                 all = FALSE)
+      } else {
+        # Non-tab cleanup
+        valid_elements <- unique(elements_all[!is.na(Element) & Element != "", .(Element)])
+        # Filter checkboxes: behoud alleen rijen waarvan Element bestaat in elements
+        current_checkbox <- current_checkbox[Element %in% valid_elements$Element]
+      }
+    }
 
     mappingData[["waarde_checkboxes"]] <<- current_checkbox
   }
@@ -4172,6 +4763,36 @@ server <- function(input, output, session) {
         }
       }
     }
+    
+    # FASE 6.5.6: Cleanup - verwijder orphaned radiobutton rijen
+    # (rijen waarvan het Element niet meer bestaat in elements_all)
+    if (nrow(current_radio) > 0) {
+      # Maak lijst van bestaande elements per tab (of zonder tab)
+      if ("tab_name_meta" %in% names(elements_all)) {
+        # Tab-aware cleanup
+        valid_elements <- elements_all[!is.na(Element) & Element != "", 
+                                       .(Element, tab_name_meta, tab_order_meta)]
+        
+        # FASE 6.5.6: Zorg ervoor dat de kolom types overeenkomen
+        # Forceer correcte types in beide datasets voor de merge
+        if ("tab_name_meta" %in% names(current_radio)) {
+          current_radio[, tab_name_meta := as.character(tab_name_meta)]
+          current_radio[, tab_order_meta := as.integer(tab_order_meta)]
+        }
+        valid_elements[, tab_name_meta := as.character(tab_name_meta)]
+        valid_elements[, tab_order_meta := as.integer(tab_order_meta)]
+        
+        # Filter radiobuttons: behoud alleen rijen waarvan Element+tab bestaat in elements
+        current_radio <- merge(current_radio, valid_elements, 
+                              by = c("Element", "tab_name_meta", "tab_order_meta"), 
+                              all = FALSE)
+      } else {
+        # Non-tab cleanup
+        valid_elements <- unique(elements_all[!is.na(Element) & Element != "", .(Element)])
+        # Filter radiobuttons: behoud alleen rijen waarvan Element bestaat in elements
+        current_radio <- current_radio[Element %in% valid_elements$Element]
+      }
+    }
 
     mappingData[["waarde_radiobuttons"]] <<- current_radio
   }
@@ -4221,6 +4842,9 @@ server <- function(input, output, session) {
       mode <- "full"
     }
     
+    # FASE 6.5.6: Check voor tab metadata VOOR we ze verwijderen
+    has_input_tab_meta <- "tab_name_meta" %in% names(data)
+    
     # FASE 6: Verwijder metadata kolommen uit weergave
     data_for_display <- copy(data)
     meta_cols <- names(data_for_display)[grepl("tab_(name|order)_meta", names(data_for_display))]
@@ -4258,19 +4882,78 @@ server <- function(input, output, session) {
     }
     
     if(file %in% c("waarde_checkboxes", "waarde_radiobuttons")) {
-      # FASE 6: Gebruik mappingData[["elements"]] in plaats van database voor real-time updates
+      # FASE 6.5.6: Gebruik mappingData[["elements"]] met tab-aware merge
       elements_df <- as.data.table(copy(mappingData[["elements"]]))
       
-      # FASE 6: Verwijder metadata kolommen uit elements voor merge
-      meta_cols <- names(elements_df)[grepl("tab_(name|order)_meta", names(elements_df))]
-      if (length(meta_cols) > 0) {
-        elements_df[, (meta_cols) := NULL]
-      }
+      # Check of elements tab metadata heeft
+      has_tab_meta <- "tab_name_meta" %in% names(elements_df)
       
+      # Hernoem castor_kolom voor merge
       setnames(elements_df, "castor_kolom", "castor_kolom_naam")
       elements_df <- elements_df[!is.na(Element) & Element != ""]
-      elements_df <- unique(elements_df, by = "Element")
-      display_data <- merge(display_data, elements_df, by = "Element", all.x = TRUE, sort = FALSE)
+      
+      # FASE 6.5.6: Gebruik de check die we eerder hebben gedaan op originele data
+      if (has_tab_meta && has_input_tab_meta) {
+        # FASE 6.5.6: Tab-aware merge: match op Element EN tab metadata
+        # Zo krijgen we de juiste castor_kolom voor elk element PER tab
+        
+        # Voor tab-aware merge moeten we de originele data gebruiken (met metadata)
+        # Maak een tijdelijke dataset met Index, Select en metadata
+        temp_merge_data <- copy(data)
+        temp_merge_data[, Index := seq_len(.N)]
+        temp_merge_data[, Select := paste0('<input type="checkbox" class="delete-rows" id="deleterows_', seq_len(.N), '">')]
+        
+        # Bewaar originele volgorde
+        temp_merge_data[, original_order := .I]
+        
+        # Zorg ervoor dat tab_order_meta hetzelfde type heeft in beide datasets
+        if ("tab_order_meta" %in% names(temp_merge_data)) {
+          temp_merge_data[, tab_order_meta := as.integer(tab_order_meta)]
+        }
+        if ("tab_order_meta" %in% names(elements_df)) {
+          elements_df[, tab_order_meta := as.integer(tab_order_meta)]
+        }
+        
+        # Merge met tab metadata
+        temp_merge_data <- merge(temp_merge_data, elements_df, 
+                                by = c("Element", "tab_name_meta", "tab_order_meta"), 
+                                all.x = TRUE, sort = FALSE)
+        
+        # Herstel originele volgorde
+        setorder(temp_merge_data, original_order)
+        temp_merge_data[, original_order := NULL]
+        
+        # Verwijder metadata kolommen voor display
+        meta_cols <- names(temp_merge_data)[grepl("tab_(name|order)_meta", names(temp_merge_data))]
+        if (length(meta_cols) > 0) {
+          temp_merge_data[, (meta_cols) := NULL]
+        }
+        
+        # Gebruik deze als display_data
+        display_data <- temp_merge_data
+      } else {
+        # Geen tab metadata in één van beide: gebruik alleen Element voor merge
+        # Dit gebeurt als de data nog niet geüpdatet is met tab metadata
+        elements_df_unique <- copy(elements_df)
+        
+        # Verwijder tab metadata uit elements als die bestaat
+        if (has_tab_meta) {
+          elements_df_unique[, c("tab_name_meta", "tab_order_meta") := NULL]
+        }
+        
+        # Maak uniek op Element
+        elements_df_unique <- unique(elements_df_unique, by = "Element")
+        
+        # Merge alleen op Element (display_data heeft al geen metadata meer)
+        display_data <- merge(display_data, elements_df_unique, 
+                             by = "Element", all.x = TRUE, sort = FALSE)
+        
+        # Zorg ervoor dat eventuele metadata kolommen ook hier verwijderd zijn
+        meta_cols <- names(display_data)[grepl("tab_(name|order)_meta", names(display_data))]
+        if (length(meta_cols) > 0) {
+          display_data[, (meta_cols) := NULL]
+        }
+      }
       
       setnames(display_data, "castor_kolom_naam", "Castor Name", skip_absent = TRUE)
       setnames(display_data, "waarde", "EPIC Value", skip_absent = TRUE)
@@ -4280,6 +4963,8 @@ server <- function(input, output, session) {
       } else if(file == "waarde_checkboxes") {
         setnames(display_data, "kolom_toevoeging", "Castor Value", skip_absent = TRUE)
       }
+      
+      # Metadata kolommen zijn al verwijderd in de merge logica hierboven
       
       cols <- names(display_data)
       other_cols <- setdiff(cols, c("Index", "Element", "Castor Name", "Select"))
@@ -5580,13 +6265,17 @@ server <- function(input, output, session) {
     # Allow empty values for testing purposes
     req(!is.null(input$new_value))
     req(is_selectable_table(input$file))
-    new_data <- mappingData[[input$file]]
+    
+    # FASE 6 FIX: Werk met actieve tab data, niet met volledige mappingData
+    new_data <- get_active_tab_data()
+    if (is.null(new_data)) return(NULL)
+    
     new_data[currentEdit$row, (currentEdit$col) := input$new_value]
-    mappingData[[input$file]] <<- new_data
+    
     key <- paste0(currentEdit$row, "_", currentEdit$col)
     manualValues$vals[[key]] <- TRUE
     
-    # Update active tab data as well
+    # Update active tab data
     if (!is.null(tabState$activeTab) && length(tabState$tabs) > 0) {
       active_idx <- which(sapply(tabState$tabs, function(t) t$id == tabState$activeTab))
       if (length(active_idx) > 0) {
@@ -5594,27 +6283,54 @@ server <- function(input, output, session) {
       }
     }
     
+    # Als we elements bewerken, update ook de checkbox/radiobutton mappings
+    if (input$file == "elements" && length(tabState$tabs) > 0) {
+      mappingData[["elements"]] <<- consolidate_tabs_with_metadata(tabState$tabs)
+      updateCheckboxMapping()
+      updateRadioMapping()
+    }
+    
     removeModal()
     render_table(new_data, input$file)
   })
   
   observeEvent(input$modal_dbl_save, {
-    req(input$new_option, input$dropdown_dblclick$row, input$dropdown_dblclick$col)
+    # Allow empty values for consistency with modal_save
+    req(!is.null(input$new_option))
+    req(input$dropdown_dblclick$row, input$dropdown_dblclick$col)
     req(is_selectable_table(input$file))
-    new_data <- mappingData[[input$file]]
-    new_data[ as.numeric(input$dropdown_dblclick$row), (input$dropdown_dblclick$col) := input$new_option ]
-    mappingData[[input$file]] <<- new_data
+    
+    # FASE 6 FIX: Werk met actieve tab data, niet met volledige mappingData
+    new_data <- get_active_tab_data()
+    if (is.null(new_data)) return(NULL)
+    
+    new_data[as.numeric(input$dropdown_dblclick$row), (input$dropdown_dblclick$col) := input$new_option]
+    
+    # Update active tab data
+    if (!is.null(tabState$activeTab) && length(tabState$tabs) > 0) {
+      active_idx <- which(sapply(tabState$tabs, function(t) t$id == tabState$activeTab))
+      if (length(active_idx) > 0) {
+        tabState$tabs[[active_idx]]$data <- new_data
+      }
+    }
+    
+    # Als we elements bewerken, update ook de checkbox/radiobutton mappings
+    if (input$file == "elements" && length(tabState$tabs) > 0) {
+      mappingData[["elements"]] <<- consolidate_tabs_with_metadata(tabState$tabs)
+      updateCheckboxMapping()
+      updateRadioMapping()
+    }
     
     session$sendCustomMessage("updateSelectedOption",
                               list(id = input$dropdown_dblclick$id, new_value = input$new_option))
     
     removeModal()
+    render_table(new_data, input$file)
   })
   
   # Save: write exclusively to the database and then update the CSV files
   observeEvent(input$save, {
-    # FASE 6.5.4: Update mappingData ALLEEN voor elements
-    # Voor radiobuttons/checkboxes: hun data wordt niet geconsolideerd, blijft zoals het is
+    # FASE 6.5.4: Update mappingData voor elements, checkboxes en radiobuttons
     if (input$file == "elements" && length(tabState$tabs) > 0) {
       # Consolideer alle tabs voor elements
       mappingData[[input$file]] <<- consolidate_tabs_with_metadata(tabState$tabs)
@@ -5622,9 +6338,11 @@ server <- function(input, output, session) {
       # Run auto-fill om radiobuttons/checkboxes bij te werken op basis van nieuwe elements data
       updateCheckboxMapping()
       updateRadioMapping()
+    } else if (input$file %in% c("waarde_checkboxes", "waarde_radiobuttons") && length(tabState$tabs) > 0) {
+      # Voor checkboxes/radiobuttons: consolideer ook hun tabs naar mappingData
+      # Anders gaan handmatige edits verloren bij save!
+      mappingData[[input$file]] <<- consolidate_tabs_with_metadata(tabState$tabs)
     }
-    # Als we in radiobuttons/checkboxes zijn: hun data wordt niet geconsolideerd
-    # (want tabState$tabs zijn eigenlijk elements tabs, niet hun eigen tabs)
     
     for (tableName in names(mappingData)) {
       dt <- mappingData[[tableName]]
@@ -5649,10 +6367,10 @@ server <- function(input, output, session) {
       dbWriteTable(con, tableName, dt, overwrite = TRUE)
     }
 
-    if (is_selectable_table(input$file) && input$file == "elements") {
-      updateCheckboxMapping()
-      updateRadioMapping()
-    }
+    # Note: updateCheckboxMapping() en updateRadioMapping() worden al aangeroepen
+    # in de if-statement hierboven (regel 5623-5624) wanneer input$file == "elements"
+    # Verwijderd om dubbele aanroepen te voorkomen die dubbele rijen veroorzaken
+    
     # Update the CSV files from the database (central paths)
     database_to_csv(dataFolder = epc_path("mapping_dir"), dbPath = epc_path("mapping_db"))
     

@@ -179,6 +179,17 @@ elements           <- readDBTable(conn_mapping, "elements")
 waarde_checkboxes  <- readDBTable(conn_mapping, "waarde_checkboxes")
 waarde_radiobuttons<- readDBTable(conn_mapping, "waarde_radiobuttons")
 
+# Filter: sluit velden met 'foll_' voorvoegsel uit voor baseline (behoud wel keys en mapping relaties)
+variabelenAll <- variabelenAll[!grepl("^foll_", variabelenAll$castor_kolom) | 
+                                variabelenAll$key == "TRUE" | 
+                                variabelenAll$gerelateerde_mapping %in% c("elements", "waarde_checkboxes|waarde_radiobuttons"), ]
+elements <- elements[!grepl("^foll_", elements$castor_kolom), ]
+# Filter waarde_checkboxes en waarde_radiobuttons: match Element én tab_name_meta met elements tabel
+# Hierdoor worden alleen de juiste tab-definities gebruikt, ongeacht de naam
+baseline_element_tabs <- unique(elements[, c("Element", "tab_name_meta")])
+waarde_checkboxes <- merge(waarde_checkboxes, baseline_element_tabs, by = c("Element", "tab_name_meta"))
+waarde_radiobuttons <- merge(waarde_radiobuttons, baseline_element_tabs, by = c("Element", "tab_name_meta"))
+
 # Load meta information from the castor_meta database
 metaRadioButtons <- readDBTable(conn_meta, "field_options")
 # Select the required columns

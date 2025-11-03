@@ -49,10 +49,22 @@ apply_approved_matches <- function(original_data, approved_matches, castor_col =
   # Maak kopie om origineel te behouden
   updated_data <- copy(original_data)
   
+  # Bepaal de EPIC value kolom op basis van tabel structuur
+  epic_col <- if ("waarde" %in% names(updated_data)) "waarde" else "kolom_toevoeging"
+  
+  # Detecteer de juiste Castor waarde kolom
+  if ("castor_waarde" %in% names(updated_data)) {
+    castor_col <- "castor_waarde"
+  } else if ("option_value" %in% names(updated_data)) {
+    castor_col <- "option_value"
+  } else if ("kolom_toevoeging" %in% names(updated_data)) {
+    castor_col <- "kolom_toevoeging"
+  }
+  
   # Match counter
   matches_applied <- 0
   
-  for (i in 1:nrow(approved_matches)) {
+  for (i in seq_len(nrow(approved_matches))) {
     match_row <- approved_matches[i]
     
     # Vind matching rijen in original data
@@ -60,12 +72,12 @@ apply_approved_matches <- function(original_data, approved_matches, castor_col =
     target_rows <- which(
       updated_data$Element == match_row$Element &
       updated_data[[castor_col]] == match_row$castor_value &
-      (is.na(updated_data$waarde) | updated_data$waarde == "")
+      (is.na(updated_data[[epic_col]]) | updated_data[[epic_col]] == "")
     )
     
     if (length(target_rows) > 0) {
-      # Update eerste matching row (of alle als gewenst)
-      updated_data[target_rows[1], waarde := match_row$epic_value_new]
+      # Update eerste matching row
+      set(updated_data, target_rows[1], epic_col, match_row$epic_value_new)
       matches_applied <- matches_applied + 1
     }
   }
@@ -146,7 +158,7 @@ export_summary_report <- function(summary, output_path = NULL) {
     "STRATEGY BREAKDOWN:"
   )
   
-  for (i in 1:nrow(summary$strategy_breakdown)) {
+  for (i in seq_len(nrow(summary$strategy_breakdown))) {
     row <- summary$strategy_breakdown[i]
     pct <- round(row$N / summary$total_suggestions * 100, 1)
     report <- c(report, sprintf("  %s: %d (%.1f%%)", row$strategy, row$N, pct))
@@ -156,7 +168,7 @@ export_summary_report <- function(summary, output_path = NULL) {
     report,
     "",
     "TOP 10 ELEMENTS:",
-    sapply(1:nrow(summary$top_elements), function(i) {
+    sapply(seq_len(nrow(summary$top_elements)), function(i) {
       row <- summary$top_elements[i]
       sprintf("  %d. %s: %d suggestions", i, row$Element, row$N)
     })

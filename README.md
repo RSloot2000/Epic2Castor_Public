@@ -78,6 +78,7 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 - **Upload helpers**
   - Baseline: [`scripts/baseline/baselineExport.r`](scripts/baseline/baselineExport.r).
   - Biobank: [`scripts/biobank_data/biobankExport.r`](scripts/biobank_data/biobankExport.r).
+  - Follow-up: [`scripts/follow_up/follow_upExport.r`](scripts/follow_up/follow_upExport.r).
   - Support streaming JSON payload creation and Castor API submission.
 
 - **Structured logging and progress reporting**
@@ -91,14 +92,11 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 ```
 .
 ├── App.r                               # Main Shiny app for mapping management, ETL, uploads
-├── app.R                               # Legacy/alternative Shiny entry point
-├── main.R                              # Legacy main script (deprecated)
 ├── README.md
 ├── .gitignore                          # Git ignore rules (excludes config/APIConfig.json!)
 ├── .Rhistory
 ├── .lintr
 ├── EpicToCastor.Rproj                 # RStudio project file
-├── .github/                            # GitHub workflows and actions
 ├── .Rproj.user/                        # RStudio user settings
 ├── config/                             # 🔐 Configuration files (add to .gitignore!)
 │   ├── paths.json                      # Path configuration & overrides
@@ -116,9 +114,12 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 │   ├── baseline/
 │   │   ├── baseline.r                  # Baseline ETL orchestrator
 │   │   └── baselineExport.r            # Baseline Castor upload helper
-│   └── biobank_data/
-│       ├── biobank_data.r              # MDN→Participant mapping + CSV writer
-│       └── biobankExport.r             # Biobank Castor upload helper
+│   ├── biobank_data/
+│   │   ├── biobank_data.r              # MDN→Participant mapping + CSV writer
+│   │   └── biobankExport.r             # Biobank Castor upload helper
+│   └── follow_up/
+│       ├── follow_up.r                 # Follow-up ETL orchestrator
+│       └── follow_upExport.r           # Follow-up Castor upload helper
 ├── mapping/
 │   ├── elements.csv                    # EPIC→Castor element mapping
 │   ├── variabelen.csv                  # Variable name mapping
@@ -133,44 +134,36 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 │   └── .castor_retrieval_done          # Flag file for metadata retrieval
 ├── castor_export/                      # Generated JSON payloads for Castor API
 │   ├── baseline.json                   # Baseline upload payload
-│   └── biobank.json                    # Biobank upload payload
+│   ├── biobank.json                    # Biobank upload payload
+│   └── follow_up.json                  # Follow-up upload payload
 ├── input_data/
-│   ├── epic_export/                    # EPIC baseline & follow-up exports
+│   ├── epic_export/                    # EPIC baseline exports
 │   │   └── EpicExport.csv
-│   └── biobank_data/                   # Biobank CSV inputs
-│       ├── biobank_data.csv
-│       └── MDNS.csv
+│   ├── biobank_data/                   # Biobank CSV inputs
+│   │   ├── biobank_data.csv
+│   │   └── MDNS.csv
+│   └── follow_up/                      # EPIC follow-up exports
+│       └── EpicExport.csv
 ├── output_data/
 │   ├── baseline/                       # Processed baseline data
 │   │   └── baseline.csv
-│   └── biobank_data/                   # Processed biobank data
-│       └── biobank.csv
+│   ├── biobank_data/                   # Processed biobank data
+│   │   └── biobank.csv
+│   └── follow_up/                      # Processed follow-up data
+│       └── follow_up.csv
 ├── db/                                 # SQLite databases (mapping & metadata)
 │   ├── mapping_data.db
 │   └── castor_meta.db
 ├── logs/                               # Timestamped run directories with detailed logs
-├── Backup/                             # Backup files and legacy code
-│   ├── App_backup.r
-│   ├── appCSS.css
-│   ├── appJS.js
-│   ├── baseline.r
-│   ├── baselineExport.r
-│   ├── baselineRetrieval.r
-│   ├── basic app backup.R
-│   ├── biobank_data.r
-│   ├── config.R
-│   ├── database.r
-│   ├── Logger.r
-│   ├── option_lists2.R
-│   ├── paths.json
-│   └── README.md
-├── funtions/                           # Legacy helpers (deprecated)
-├── www/                                # Static assets for Shiny UI
-│   ├── appCSS.css
-│   ├── appJS.js
-│   └── img/
-│       └── logo.png
-└── References/                         # Reference files & documentation
+│   └── 2025-11-03_10-46/               # Example run directory
+└── www/                                # Static assets for Shiny UI
+    ├── appCSS.css
+    ├── appJS.js
+    ├── colResizable-1.6.js             # Column resizing library
+    ├── select2.min.css                 # Select2 dropdown styling
+    ├── select2.min.js                  # Select2 dropdown library
+    └── img/
+        └── logo.png
 ```
 
 ---
@@ -539,15 +532,32 @@ Auto-fill uses 7 intelligent strategies (in order of precedence):
 - Use **'Export CSV'** to save suggestions for review
 - Approved auto-fills build a reference dictionary for future runs
 
-### Run the ETL (baseline.r)
+### Run the ETL
 
+ETL scripts are available for different data types:
+
+**Baseline data:**
 ```r
 source("scripts/baseline/baseline.r")
 # or
 Rscript scripts/baseline/baseline.r
 ```
 
-Outputs Castor-ready CSVs under [`output_data/baseline`](output_data/baseline) per mapping definition ([`mapping/variabelen.csv`](mapping/variabelen.csv)).
+**Follow-up data:**
+```r
+source("scripts/follow_up/follow_up.r")
+# or
+Rscript scripts/follow_up/follow_up.r
+```
+
+**Biobank data:**
+```r
+source("scripts/biobank_data/biobank_data.r")
+# or
+Rscript scripts/biobank_data/biobank_data.r
+```
+
+Each script outputs Castor-ready CSVs under the corresponding [`output_data`](output_data) subfolder per mapping definition ([`mapping/variabelen.csv`](mapping/variabelen.csv)).
 
 ### Generate Castor upload payloads
 
@@ -559,6 +569,9 @@ Rscript scripts/baseline/baselineExport.r "<site_id> - <site_name>"
 
 # Biobank JSON + API upload
 Rscript scripts/biobank_data/biobankExport.r "<site_id> - <site_name>"
+
+# Follow-up JSON + API upload
+Rscript scripts/follow_up/follow_upExport.r "<site_id> - <site_name>"
 ```
 
 Each export script:
@@ -572,13 +585,13 @@ Each export script:
 
 ## Data flow
 
-[`scripts/baseline/baseline.r`](scripts/baseline/baseline.r) orchestrates the ETL:
+The ETL scripts ([`scripts/baseline/baseline.r`](scripts/baseline/baseline.r), [`scripts/follow_up/follow_up.r`](scripts/follow_up/follow_up.r), [`scripts/biobank_data/biobank_data.r`](scripts/biobank_data/biobank_data.r)) orchestrate the data transformation:
 
 1. Initialize logging/status and load paths via [`scripts/config.R`](scripts/config.R).
 2. Rebuild SQLite caches ([`db/*.db`](db/)) when source CSV hashes change.
 3. Retrieve or read Castor metadata (option groups, study variable list).
 4. For each mapping row in [`mapping/variabelen.csv`](mapping/variabelen.csv):
-   - Load Epic source file (Excel or CSV) from [`input_data/epic_export`](input_data/epic_export).
+   - Load Epic source file (Excel or CSV) from the corresponding [`input_data`](input_data) subfolder.
    - Normalize text encodings, dates (`datum`), and durations (weeks conversion).
    - Rename Epic columns to Castor variables via [`mapping/variabelen.csv`](mapping/variabelen.csv).
    - Resolve checkbox and radio options using [`mapping/waarde_checkboxes.csv`](mapping/waarde_checkboxes.csv) and [`mapping/waarde_radiobuttons.csv`](mapping/waarde_radiobuttons.csv).
@@ -586,7 +599,7 @@ Each export script:
    - Apply fixed values, repeating data labels, and creation timestamps.
    - Write Castor-ready CSVs separated by table under [`output_data`](output_data).
 
-Optional upload scripts ([`baselineExport.r`](scripts/baseline/baselineExport.r), [`biobankExport.r`](scripts/biobank_data/biobankExport.r)) reuse these outputs to stream JSON payloads and interact with the Castor API.
+Optional upload scripts ([`baselineExport.r`](scripts/baseline/baselineExport.r), [`biobankExport.r`](scripts/biobank_data/biobankExport.r), [`follow_upExport.r`](scripts/follow_up/follow_upExport.r)) reuse these outputs to stream JSON payloads and interact with the Castor API.
 
 ---
 
