@@ -97,6 +97,7 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 ├── .Rhistory
 ├── .lintr
 ├── EpicToCastor.Rproj                 # RStudio project file
+├── .github/                            # GitHub workflows and actions
 ├── .Rproj.user/                        # RStudio user settings
 ├── config/                             # 🔐 Configuration files (add to .gitignore!)
 │   ├── paths.json                      # Path configuration & overrides
@@ -156,33 +157,71 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 │   └── castor_meta.db
 ├── logs/                               # Timestamped run directories with detailed logs
 │   └── 2025-11-03_10-46/               # Example run directory
-└── www/                                # Static assets for Shiny UI
-    ├── appCSS.css
-    ├── appJS.js
-    ├── colResizable-1.6.js             # Column resizing library
-    ├── select2.min.css                 # Select2 dropdown styling
-    ├── select2.min.js                  # Select2 dropdown library
-    └── img/
-        └── logo.png
+│       ├── App_log.txt
+│       ├── baseline_log.txt
+│       ├── biobank_data_log.txt
+│       ├── follow_up_log.txt
+│       ├── follow_upExport_log.txt
+│       └── status.json
+├── sync-pb/                            # Public repository sync utilities
+│   ├── README.md
+│   ├── Reset-GitHistory.ps1            # PowerShell script to reset git history
+│   ├── sync-config.json                # Sync configuration
+│   ├── sync-log.txt                    # Sync operation log
+│   └── Sync-ToPublic.ps1               # PowerShell script to sync to public repo
+├── Backup/                             # Backup files and legacy code
+│   ├── App_backup.r
+│   ├── appCSS.css
+│   ├── appJS.js
+│   ├── baseline.r
+│   ├── baselineExport.r
+│   ├── baselineRetrieval.r
+│   ├── basic app backup.R
+│   ├── biobank_data.r
+│   ├── config.R
+│   ├── database.r
+│   ├── Logger.r
+│   ├── option_lists2.R
+│   ├── paths.json
+│   └── README.md
+├── funtions/                           # Legacy helpers (deprecated)
+│   └── checks.R
+├── www/                                # Static assets for Shiny UI
+│   ├── appCSS.css
+│   ├── appJS.js
+│   ├── colResizable-1.6.js             # Column resizing library
+│   ├── select2.min.css                 # Select2 dropdown styling
+│   ├── select2.min.js                  # Select2 dropdown library
+│   └── img/
+│       └── logo.png
+└── References/                         # Reference files & documentation
 ```
 
 ---
 
 ## Installation
 
+Installation
 Prerequisites:
 
-- R ≥ 4.1
-- Internet access for Castor API calls (unless cached metadata is provided)
+R ≥ 4.1
+Internet access for Castor API calls (unless cached metadata is provided)
 
-Install required packages:
+Important for managed environments (VMware, App-V, OneDrive):
+Source compilation is often blocked. To avoid errors, force binary installation.
+
+Install required packages (binary only)
 
 ```r
+# Prevent R from compiling from source
+options(install.packages.compile.from.source = "never")
+
+# Install all required packages as binaries
 install.packages(c(
   "shiny", "data.table", "DT", "shinyjs", "shinydashboard",
   "readxl", "readr", "processx", "jsonlite", "httr",
   "DBI", "RSQLite", "digest", "uuid", "stringdist", "later"
-))
+), lib = local_lib, type = "binary")
 ```
 
 Scripts invoked via `Rscript` auto-create writable user libraries and install missing packages when necessary.
