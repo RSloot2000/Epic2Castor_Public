@@ -38,7 +38,7 @@
 # Clear workspace and force garbage collection for clean start
 rm(list = ls())
 gc(verbose = getOption("verbose"), reset = FALSE, full = TRUE)
-gcinfo(verbose)
+gcinfo(verbose = TRUE)
 
 # ===== LIBRARY DEPENDENCIES =====
 # Core Shiny framework and UI components
