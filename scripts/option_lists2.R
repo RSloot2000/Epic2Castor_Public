@@ -153,11 +153,17 @@ capitalize_first <- function(x) {
 #'   - Castor requires exact matches for dropdown values
 #'   - Prevents mapping errors due to "Male" vs "male" mismatches
 read_data <- function(file_path, ...) {
+  dots <- list(...)
   result <- NULL
   if (grepl("\\.csv$", file_path)) {
     result <- fread(file_path, colClasses = "character", strip.white = TRUE, ...)
   } else if (grepl("\\.xlsx$", file_path)) {
-    result <- as.data.table(readxl::read_excel(file_path, ...))
+    # read_excel expects n_max instead of nrows; map if provided
+    if (!is.null(dots$nrows)) {
+      dots$n_max <- dots$nrows
+      dots$nrows <- NULL
+    }
+    result <- as.data.table(do.call(readxl::read_excel, c(list(file_path), dots)))
   }
   
   if (!is.null(result)) {

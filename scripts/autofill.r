@@ -39,6 +39,15 @@ library(jsonlite)
 library(RSQLite)
 library(DBI)
 
+# Load ML autofill module (if available)
+tryCatch({
+  source("scripts/autofill_ml.r")
+  cat("✓ ML autofill module integrated\n")
+}, error = function(e) {
+  cat("ℹ ML autofill not available:", conditionMessage(e), "\n")
+  ML_AVAILABLE <<- FALSE
+})
+
 # ===== LOAD CONFIGURATION =====
 # Load central path configuration if not already loaded
 if (!exists("epc_path")) {
@@ -265,9 +274,16 @@ check_internet_connection <- function() {
 #' Uses central Logger.r infrastructure if available, otherwise creates own log
 #' @param message Message to log
 #' @param level Log level (INFO, WARNING, ERROR)
-autofill_log <- function(message, level = "INFO") {
+#' @param console If FALSE, suppress console output (default: TRUE for ERROR, FALSE for WARNING)
+autofill_log <- function(message, level = "INFO", console = NULL) {
   timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
   log_entry <- sprintf("[%s] %s: %s\n", timestamp, level, message)
+  
+  # Determine console output behavior
+  if (is.null(console)) {
+    # Default: show ERROR, hide WARNING and INFO (reduce console clutter)
+    console <- (level == "ERROR")
+  }
   
   # ===== TRY TO USE CENTRAL LOGGER =====
   # Check if Logger.r is loaded and has a log directory set
@@ -299,13 +315,15 @@ autofill_log <- function(message, level = "INFO") {
     cat(log_entry, file = log_file, append = TRUE)
     TRUE
   }, error = function(e) {
-    # Fallback: print to console only
-    cat(sprintf("[AUTOFILL-LOG-ERROR] Could not write to log file: %s\n", e$message))
+    # Fallback: print to console only if enabled
+    if (console) {
+      cat(sprintf("[AUTOFILL-LOG-ERROR] Could not write to log file: %s\n", e$message))
+    }
     FALSE
   })
   
-  # Always print to console for warnings and errors
-  if (level %in% c("ERROR", "WARNING")) {
+  # Print to console only if enabled (reduce clutter)
+  if (console) {
     cat(log_entry)
   }
 }
@@ -920,10 +938,12 @@ strategy_elimination <- function(element_data, castor_col) {
 #' @param all_data Complete dataset
 #' @param ref_dict Reference dictionary
 #' @param med_dict Medical dictionary
+#' @param use_ml Enable ML predictions
+#' @param ml_model Pre-loaded ML model (NULL if not available)
 #' @return List with best match and alternatives
-apply_all_strategies <- function(castor_value, element_id, all_data, ref_dict, med_dict, use_elimination = TRUE) {
-  autofill_log(sprintf("Applying strategies for: '%s' (Element: %s) [elimination=%s]", 
-                      castor_value, element_id, use_elimination), "INFO")
+apply_all_strategies <- function(castor_value, element_id, all_data, ref_dict, med_dict, use_elimination = TRUE, use_ml = TRUE, ml_model = NULL) {
+  autofill_log(sprintf("Applying strategies for: '%s' (Element: %s) [elimination=%s, ML=%s]", 
+                      castor_value, element_id, use_elimination, use_ml), "INFO")
   
   # Get available EPIC values for this element (from pv_elements)
   available_values <- get_available_epic_values(element_id, all_data)
@@ -1110,7 +1130,41 @@ apply_all_strategies <- function(castor_value, element_id, all_data, ref_dict, m
     ))
   }
   
-  # STRATEGY 4: Translate and check against available options
+  # STRATEGY 4: ML Prediction (if enabled and model available)
+  if (use_ml && !is.null(ml_model) && exists("predict_epic_value_ml")) {
+    tryCatch({
+      # Use pre-loaded model to avoid repeated disk I/O
+      ml_result <- predict_epic_value_ml(castor_value, element = element_id, ref_dict = ref_dict, model_info = ml_model)
+      
+      if (!is.null(ml_result)) {
+        # Validate ML prediction against available values
+        if (is_valid_epic_value(ml_result$epic_value, available_values)) {
+          autofill_log(sprintf("  ✓ ML prediction: '%s' (%.1f%% confidence)", 
+                              ml_result$epic_value, ml_result$confidence), "INFO")
+          
+          # Convert ML result to standard format
+          result <- list(
+            epic_value = ml_result$epic_value,
+            confidence = ml_result$confidence,
+            strategy = ml_result$strategy,
+            source = ml_result$source
+          )
+          
+          return(list(
+            best = result,
+            alternatives = list(result)
+          ))
+        } else {
+          autofill_log(sprintf("  ⚠ ML prediction '%s' not in available options", 
+                              ml_result$epic_value), "WARNING")
+        }
+      }
+    }, error = function(e) {
+      autofill_log(sprintf("  ⚠ ML prediction error: %s", conditionMessage(e)), "WARNING")
+    })
+  }
+  
+  # STRATEGY 5: Translate and check against available options
   translated_result <- strategy_api_translation(castor_value)
   if (!is.null(translated_result)) {
     # 4a. Check if translation is directly available
@@ -1488,9 +1542,10 @@ validate_before_autofill <- function(data, element = NULL) {
 #' @param tab_name Optional: specific tab to process
 #' @param review_existing If TRUE, also review already filled values
 #' @param min_confidence Minimum confidence to include in results
+#' @param use_ml Enable ML predictions (default: TRUE if ML available)
 #' @return data.table with suggestions
-process_autofill <- function(table_name, tab_name = NULL, review_existing = FALSE, min_confidence = 70, current_data = NULL) {
-  autofill_log(sprintf("\n========== Starting autofill for %s ==========", table_name))
+process_autofill <- function(table_name, tab_name = NULL, review_existing = FALSE, min_confidence = 70, current_data = NULL, use_ml = TRUE) {
+  autofill_log(sprintf("\n========== Starting autofill for %s (ML: %s) ==========", table_name, use_ml))
   
   # 1. Load data (use provided data if available for real-time UI state)
   data <- load_mappings_data(table_name, current_data = current_data)
@@ -1498,6 +1553,23 @@ process_autofill <- function(table_name, tab_name = NULL, review_existing = FALS
   # 2. Build dictionaries
   ref_dict <- build_reference_dictionary(data)
   med_dict <- load_medical_dictionary()
+  
+  # 2b. Load ML model once (if enabled)
+  ml_model <- NULL
+  if (use_ml && exists("ML_AVAILABLE") && ML_AVAILABLE && exists("load_model")) {
+    tryCatch({
+      autofill_log("Loading ML model for predictions...", "INFO")
+      # Load silently (verbose=FALSE) to avoid console clutter
+      ml_model <- load_model(verbose = FALSE)
+      if (!is.null(ml_model)) {
+        autofill_log(sprintf("✓ ML model loaded: %d classes, %.1f%% validation accuracy", 
+                            length(ml_model$epic_levels), 
+                            ml_model$metrics$validation_accuracy * 100), "INFO")
+      }
+    }, error = function(e) {
+      autofill_log(sprintf("⚠ Could not load ML model: %s", conditionMessage(e)), "WARNING")
+    })
+  }
   
   # 3. Identify empty values
   empty <- identify_empty_epic_values(data, tab_name, review_existing)
@@ -1596,7 +1668,9 @@ process_autofill <- function(table_name, tab_name = NULL, review_existing = FALS
         all_data = data,
         ref_dict = ref_dict,
         med_dict = med_dict,
-        use_elimination = TRUE  # ENABLED: Pass 1 can use elimination with original data
+        use_elimination = TRUE,  # ENABLED: Pass 1 can use elimination with original data
+        use_ml = use_ml,  # Pass ML setting from process_autofill
+        ml_model = ml_model  # Pass pre-loaded model (avoid repeated loading)
       )
     
       if (!is.null(match_result) && !is.null(match_result$best)) {
@@ -1691,7 +1765,9 @@ process_autofill <- function(table_name, tab_name = NULL, review_existing = FALS
           all_data = temp_data,  # Use temp data with Pass 1 results
           ref_dict = ref_dict,
           med_dict = med_dict,
-          use_elimination = TRUE  # PASS 2: Enable elimination
+          use_elimination = TRUE,  # PASS 2: Enable elimination
+          use_ml = use_ml,  # Pass ML setting through
+          ml_model = ml_model  # Pass pre-loaded model
         )
         
         if (!is.null(match_result) && !is.null(match_result$best)) {

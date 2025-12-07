@@ -1,0 +1,139 @@
+{
+  "version": "1.0",
+  "enabled": true,
+  "locale": "en",
+  "translations": {
+    "en": {
+      "categories": {
+        "clipboard": "Clipboard Operations",
+        "data": "Data Operations",
+        "navigation": "Navigation",
+        "ui": "Interface"
+      },
+      "messages": {
+        "modal_blocked": "Shortcuts disabled while modal is open",
+        "wrong_table": "This shortcut only works in the Elements table",
+        "no_selection": "Select rows first to use copy/cut",
+        "clipboard_copied": "Copied {count} row(s)",
+        "clipboard_cut": "Cut {count} row(s)",
+        "clipboard_pasted": "Pasted {count} row(s)",
+        "saved": "Changes saved successfully",
+        "no_changes": "No changes to save"
+      }
+    }
+  },
+  "shortcuts": {
+    "clipboard": {
+      "copy": {
+        "keys": "Ctrl+C",
+        "keys_mac": "Cmd+C",
+        "alt_keys": "Ctrl+Insert",
+        "description": "Copy selected rows",
+        "aria_label": "Copy selected rows to clipboard",
+        "enabled": true,
+        "prevent_default": true,
+        "scope": "elements_table_only"
+      },
+      "cut": {
+        "keys": "Ctrl+X",
+        "keys_mac": "Cmd+X",
+        "description": "Cut selected rows",
+        "aria_label": "Cut selected rows to clipboard",
+        "enabled": true,
+        "prevent_default": true,
+        "scope": "elements_table_only"
+      },
+      "paste": {
+        "keys": "Ctrl+V",
+        "keys_mac": "Cmd+V",
+        "alt_keys": "Shift+Insert",
+        "description": "Paste copied/cut rows",
+        "aria_label": "Paste rows from clipboard",
+        "enabled": true,
+        "prevent_default": true,
+        "scope": "elements_table_only"
+      }
+    },
+    "data": {
+      "save": {
+        "keys": "Ctrl+S",
+        "keys_mac": "Cmd+S",
+        "description": "Save changes to database",
+        "aria_label": "Save all changes to database",
+        "enabled": true,
+        "prevent_default": true,
+        "scope": "global"
+      }
+    },
+    "navigation": {
+      "search": {
+        "keys": "Ctrl+F",
+        "keys_mac": "Cmd+F",
+        "description": "Focus search box",
+        "aria_label": "Focus the search input field",
+        "enabled": true,
+        "prevent_default": true,
+        "scope": "global"
+      },
+      "next_tab": {
+        "keys": "Ctrl+Right",
+        "keys_mac": "Cmd+Right",
+        "description": "Switch to next tab",
+        "aria_label": "Navigate to the next tab",
+        "enabled": true,
+        "prevent_default": true,
+        "scope": "global"
+      },
+      "prev_tab": {
+        "keys": "Ctrl+Left",
+        "keys_mac": "Cmd+Left",
+        "description": "Switch to previous tab",
+        "aria_label": "Navigate to the previous tab",
+        "enabled": true,
+        "prevent_default": true,
+        "scope": "global"
+      },
+      "clear_selection": {
+        "keys": "Escape",
+        "keys_mac": "Escape",
+        "description": "Clear row selection",
+        "aria_label": "Clear all selected rows",
+        "enabled": true,
+        "prevent_default": false,
+        "scope": "table_only"
+      }
+    },
+    "ui": {
+      "help": {
+        "keys": "F1",
+        "keys_mac": "F1",
+        "description": "Show keyboard shortcuts help",
+        "aria_label": "Open keyboard shortcuts help dialog",
+        "enabled": true,
+        "prevent_default": true,
+        "scope": "global"
+      },
+      "refresh": {
+        "keys": "F5",
+        "keys_mac": "F5",
+        "description": "Refresh current table",
+        "aria_label": "Refresh the current table data",
+        "enabled": true,
+        "prevent_default": true,
+        "scope": "global"
+      }
+    }
+  },
+  "metadata": {
+    "created": "2025-11-22",
+    "author": "Epic2Castor Development Team",
+    "description": "Keyboard shortcuts configuration for Epic2Castor data mapping application",
+    "notes": [
+      "Shortcuts with scope 'elements_table_only' only work when the 'elements' table is active",
+      "Shortcuts with scope 'global' work everywhere except in modals",
+      "Shortcuts with scope 'table_only' work when any table has focus",
+      "Mac shortcuts automatically use Cmd instead of Ctrl when detected",
+      "Alternative shortcuts (alt_keys) provide fallback options for users"
+    ]
+  }
+}

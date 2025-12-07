@@ -1,7 +1,6 @@
 # ============================================================================
 # EPIC2CASTOR - DATA MAPPING APPLICATION
 # ============================================================================
-# Version: 2025-11-03 (Production)
 #
 # Purpose:
 #   Interactive Shiny application for mapping EPIC hospital data to Castor EDC
@@ -38,7 +37,7 @@
 # Clear workspace and force garbage collection for clean start
 rm(list = ls())
 gc(verbose = getOption("verbose"), reset = FALSE, full = TRUE)
-gcinfo(verbose)
+gcinfo(verbose = FALSE)
 
 # ===== LIBRARY DEPENDENCIES =====
 # Core Shiny framework and UI components
@@ -88,6 +87,87 @@ safe_capture <- function(expr) {
       stop(e)
     }
   )
+}
+
+#' Performance timing wrapper for R operations
+#' 
+#' Times an operation and logs the duration to console with color coding
+#' Optional: can also log to performance.log file for persistent monitoring
+#' 
+#' @param name Character - Operation name for logging
+#' @param expr Expression to time
+#' @param log_to_file Logical - Whether to also log to performance.log (default: FALSE)
+#' @return Result of expr
+#' 
+#' @examples
+#' result <- time_operation("load_data", {
+#'   data <- read.csv("large_file.csv")
+#'   data
+#' })
+time_operation <- function(name, expr, log_to_file = FALSE) {
+  # Check if performance monitoring is enabled
+  if (isFALSE(getOption("epic2castor.performance_monitoring", TRUE))) {
+    return(expr)
+  }
+  
+  start_time <- Sys.time()
+  
+  # Execute operation
+  result <- tryCatch(
+    expr,
+    error = function(e) {
+      # Log error with timing
+      end_time <- Sys.time()
+      duration <- as.numeric(difftime(end_time, start_time, units = "secs"))
+      
+      cat(sprintf(
+        "\033[31m[Perf] ✗ %s: %.3fs (ERROR: %s)\033[0m\n",
+        name,
+        duration,
+        e$message
+      ))
+      
+      stop(e)
+    }
+  )
+  
+  end_time <- Sys.time()
+  duration <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  
+  # Color code based on duration
+  color_code <- if (duration < 0.1) {
+    "\033[32m"  # Green (< 100ms)
+  } else if (duration < 1.0) {
+    "\033[33m"  # Yellow (< 1s)
+  } else {
+    "\033[31m"  # Red (>= 1s)
+  }
+  
+  # Log to console
+  cat(sprintf(
+    "%s[Perf] ✓ %s: %.3fs\033[0m\n",
+    color_code,
+    name,
+    duration
+  ))
+  
+  # Optional: Log to file for persistent monitoring
+  if (log_to_file && !is.null(getOption("epic2castor.performance_log_file"))) {
+    tryCatch({
+      log_file <- getOption("epic2castor.performance_log_file")
+      log_entry <- sprintf(
+        "[%s] %s: %.3fs\n",
+        format(start_time, "%Y-%m-%d %H:%M:%S"),
+        name,
+        duration
+      )
+      cat(log_entry, file = log_file, append = TRUE)
+    }, error = function(e) {
+      # Silent fail if logging to file fails
+    })
+  }
+  
+  return(result)
 }
 
 # ============================================================================
@@ -445,6 +525,13 @@ source(file.path(epc_path("scripts_dir"), "autofill.r"))
 # Load export functions (export_approved_data, batch processing)
 source(file.path(epc_path("scripts_dir"), "export_approved.r"))
 
+# Load combined import wizard (config, detection, mapping, transformation, templates, export)
+source(epc_path("import_wizard_script"))
+
+# Load import configs once at startup (for wizard modal)
+IMPORT_CONFIGS <- get_all_import_types()
+cat(sprintf("[Startup] Import wizard loaded with %d import types\n", length(IMPORT_CONFIGS)))
+
 # ============================================================================
 # DATABASE MANAGEMENT UTILITIES
 # ============================================================================
@@ -593,6 +680,28 @@ if (!isTRUE(getOption("epic2castor.castor_meta_built", FALSE)) || castor_meta_re
 cat(sprintf("[Startup] (%s) Castor meta database ready.\n", format(Sys.time(), "%H:%M:%S")))
 flush.console()
 
+# ===== PERFORMANCE MONITORING INFO =====
+# Log performance monitoring availability
+cat("\n")
+cat("═══════════════════════════════════════════════════════════════════\n")
+cat("⚡ PERFORMANCE MONITORING ENABLED\n")
+cat("═══════════════════════════════════════════════════════════════════\n")
+cat("📊 Client-side:\n")
+cat("   • Press Ctrl+Shift+P to toggle performance panel\n")
+cat("   • Press Ctrl+Shift+L to log performance summary\n")
+cat("   • Console shows timing for: table render, cell edit, tab switch\n")
+cat("\n")
+cat("📊 Server-side:\n")
+cat("   • Console shows timing for R operations\n")
+cat("   • Use time_operation('name', { code }) to measure custom operations\n")
+cat("\n")
+cat("🔧 To disable:\n")
+cat("   • Client: Set performanceMonitor.enabled = false in console\n")
+cat("   • Server: options(epic2castor.performance_monitoring = FALSE)\n")
+cat("═══════════════════════════════════════════════════════════════════\n")
+cat("\n")
+flush.console()
+
 # ===== POSSIBLE VALUES GENERATION =====
 # Generate pv_elements.csv: maps EPIC values to available Castor options
 # Used by autofill dropdowns to show only valid values
@@ -625,7 +734,8 @@ table_names <- setdiff(dbListTables(tmp_con), "possibleValues_Elements")
 # ===== TABLE VISIBILITY CONFIGURATION =====
 # Define which tables are hidden from user selection
 # "variabelen" is an internal lookup table not meant for direct editing
-hidden_tables <- c("variabelen")
+# "elements_backup_before_test" is a test backup table that should not be shown
+hidden_tables <- c("variabelen", "elements_backup_before_test")
 
 #' Check if a table name is selectable by users
 #' 
@@ -955,10 +1065,12 @@ ui <- fluidPage(
           tags$link(rel = "manifest", href = "img/site.webmanifest"),
           
           # JavaScript libraries and custom scripts
-          tags$script(src = "/colResizable-1.6.js"),    # Column resizing plugin
           tags$link(rel = "stylesheet", href = "appCSS.css"),  # Custom styles
           tags$link(rel = "stylesheet", href = "select2.min.css"),  # Dropdown styling
           tags$script(src = "select2.min.js"),  # Enhanced dropdowns
+          
+          # Keyboard shortcut handler
+          tags$script(src = paste0("shortcutHandler.js?v=", format(Sys.time(), "%Y%m%d%H%M%S"))),
           
           # Custom JavaScript with cache-busting timestamp
           tags$script(src = paste0("appJS.js?v=", format(Sys.time(), "%Y%m%d%H%M%S"))),
@@ -985,12 +1097,19 @@ ui <- fluidPage(
                       # Search box with row count warning icon
                       div(style = "margin-right: 5px; position: relative;",
                           textInput("search", label = "Search", placeholder = "Search...", width = "200px") %>%
-                            tagAppendAttributes(oninput = "Shiny.setInputValue('search', this.value, {priority:'event'})"),
-                          
-                          # Warning icon (shown when row count exceeds threshold)
-                          div(id = "row_warning_icon", style = "display: none; position: absolute; right: -44px; top: 23px;",
-                              uiOutput("row_warning_content")
-                          )
+                            tagAppendAttributes(oninput = "Shiny.setInputValue('search', this.value, {priority:'event'})")
+                      ),
+                      
+                      # Warning icon (shown when row count exceeds threshold)
+                      div(id = "row_warning_icon", 
+                          style = "display: none; margin-right: 10px;",
+                          uiOutput("row_warning_content")
+                      ),
+                      
+                      # Render mode badge (Step 5 - compact icon shows pagination strategy)
+                      div(id = "render_mode_badge", 
+                          style = "display: none; margin-right: 10px;",
+                          uiOutput("render_mode_content")
                       )
                   ),
                   
@@ -1037,6 +1156,24 @@ ui <- fluidPage(
                                       tags$li(actionLink("run_main_script", "Create CSVs", class = "menu-link")),
                                       tags$li(actionLink("run_upload_script", "Castor upload", class = "menu-link"))
                               )
+                          ),
+                          
+                          # ===== HELP MENU =====
+                          div(class = "dropdown menu-group",
+                              tags$button(
+                                class = "btn btn-default dropdown-toggle menu-toggle",
+                                type = "button",
+                                `data-toggle` = "dropdown",
+                                `aria-haspopup` = "true",
+                                `aria-expanded` = "false",
+                                "Help ",
+                                tags$span(class = "caret")
+                              ),
+                              tags$ul(class = "dropdown-menu",
+                                      tags$li(actionLink("show_shortcuts", "User Guide", class = "menu-link", icon = icon("book"))),
+                                      tags$li(class = "divider"),
+                                      tags$li(actionLink("show_about", "About", class = "menu-link", icon = icon("info-circle")))
+                              )
                           )
                           
                           # Additional menu groups would go here (Edit, Export, etc.)
@@ -1057,77 +1194,95 @@ ui <- fluidPage(
       mainPanel(
           box(
               title = "",  # No title for cleaner look
-              width = 2000,  # Wide box to accommodate large tables
+              width = NULL,  # Responsive width - controlled by JavaScript
               status = "primary",
               
               # Scrollable container for table (horizontal overflow)
-              div(id = "scrollDiv", style = 'overflow-x: scroll',
+              div(id = "scrollDiv",
                   DT::DTOutput('table')  # DataTables output
               )
           ),
-          style = "margin-top: 10px; margin-left: 10px"
+          style = "margin-top: 10px; margin-left: 10px; width: 100%;"
       ),
       
       # ===== FIXED FOOTER =====
       # Always visible at bottom with row controls and tab navigation
       div(class = "fixed-footer",
+          style = "display: block; padding: 10px 15px;",
           
           # First row: action buttons and table width control
-          fluidRow(
-              style = "margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #ddd;",
+          div(style = "margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between;",
               
               # Left side: New Tab button
-              column(2,
-                     actionButton("create_tab", "+ New Tab",
-                                  class = "btn btn-success btn-add-tab",
-                                  title = "Add new tab")
+              div(style = "flex-shrink: 0;",
+                  actionButton("create_tab", "+ New Tab",
+                               class = "btn btn-success btn-add-tab",
+                               title = "Add new tab")
               ),
               
-              # Right side: all other controls
-              column(10, style = "text-align: right;",
-                     tags$div(style = "display: inline-flex; align-items: center; gap: 0;",
-                              
-                              # Row add/delete buttons
-                              actionButton("add_row", "+",
-                                           class = "btn btn-footer",
-                                           style = "background-color:green; color:white; min-width:40px; height:34px; padding:6px 12px;",
-                                           title = "Add new row"),
-                              actionButton("delete_rows", "-",
-                                           class = "btn btn-footer",
-                                           style = "background-color:red; color:white; min-width:40px; height:34px; padding:6px 12px; margin-right:10px;",
-                                           title = "Delete selected rows"),
-                              
-                              # Copy/Cut/Paste buttons (clipboard operations)
-                              actionButton("copy_rows", icon("copy"),
-                                           class = "btn btn-footer",
-                                           style = "background-color:#007bff; color:white; min-width:40px; height:34px; padding:6px 12px;",
-                                           title = "Copy selected rows"),
-                              actionButton("cut_rows", icon("cut"),
-                                           class = "btn btn-footer",
-                                           style = "background-color:#ff9800; color:white; min-width:40px; height:34px; padding:6px 12px;",
-                                           title = "Cut selected rows"),
-                              actionButton("paste_rows", icon("paste"),
-                                           class = "btn btn-footer",
-                                           style = "background-color:#28a745; color:white; min-width:40px; height:34px; padding:6px 12px;",
-                                           title = "Paste rows"),
-                              
-                              # Bulk move button (move rows between tabs)
-                              actionButton("move_rows_bulk", icon("arrows-alt-v"),
-                                           class = "btn btn-footer",
-                                           style = "background-color:#9c27b0; color:white; min-width:40px; height:34px; padding:6px 12px; margin-right:10px;",
-                                           title = "Move rows to another tab"),
-                              
-                              # Auto-fill button (dynamic UI - only shown for value tables)
-                              uiOutput("autofill_button_ui"),
-                              
-                              # Table width slider control
-                              tags$label("Table Width",
-                                         style = "margin: 0 0 0 15px; display: inline-block; vertical-align: middle; line-height: 34px;"),
-                              tags$input(id = "width", type = "range",
-                                         min = "100", max = "2500", value = "1000",
-                                         style = "width: 200px; vertical-align: middle; display: inline-block; margin-left: 8px;",
-                                         oninput = "Shiny.setInputValue('width', this.value, {priority:'event'})")
-                     )
+              # Right side: all other controls with logical grouping
+              div(style = "display: flex; align-items: center; gap: 15px;",
+                  
+                  # GROUP 1: Row add/delete operations
+                  tags$div(class = "footer-btn-group",
+                           actionButton("add_row", "+",
+                                        class = "btn btn-footer",
+                                        style = "background-color:green; color:white; min-width:40px; height:34px; padding:6px 12px;",
+                                        title = "Add new row"),
+                           actionButton("delete_rows", "-",
+                                        class = "btn btn-footer",
+                                        style = "background-color:red; color:white; min-width:40px; height:34px; padding:6px 12px;",
+                                        title = "Delete selected rows")
+                  ),
+                  
+                  # Separator
+                  tags$div(class = "footer-separator"),
+                  
+                  # GROUP 2: Clipboard operations
+                  tags$div(class = "footer-btn-group",
+                           actionButton("copy_rows", icon("copy"),
+                                        class = "btn btn-footer",
+                                        style = "background-color:#007bff; color:white; min-width:40px; height:34px; padding:6px 12px;",
+                                        title = "Copy selected rows"),
+                           actionButton("cut_rows", icon("cut"),
+                                        class = "btn btn-footer",
+                                        style = "background-color:#ff9800; color:white; min-width:40px; height:34px; padding:6px 12px;",
+                                        title = "Cut selected rows"),
+                           actionButton("paste_rows", icon("paste"),
+                                        class = "btn btn-footer",
+                                        style = "background-color:#28a745; color:white; min-width:40px; height:34px; padding:6px 12px;",
+                                        title = "Paste rows")
+                  ),
+                  
+                  # Separator
+                  tags$div(class = "footer-separator"),
+                  
+                  # GROUP 3: Row movement
+                  tags$div(class = "footer-btn-group",
+                           actionButton("move_rows_bulk", icon("arrows-alt-v"),
+                                        class = "btn btn-footer",
+                                        style = "background-color:#9c27b0; color:white; min-width:40px; height:34px; padding:6px 12px;",
+                                        title = "Move rows to another tab")
+                  ),
+                  
+                  # Separator
+                  tags$div(class = "footer-separator"),
+                  
+                  # GROUP 4: Smart features (auto-fill + auto-width)
+                  tags$div(class = "footer-btn-group",
+                           # Auto-fill button (dynamic UI - only shown for value tables)
+                           uiOutput("autofill_button_ui"),
+                           
+                           # Auto-width toggle button (fits table to window width)
+                           tags$button(
+                             id = "reset_table_width",
+                             class = "btn btn-footer",
+                             style = "background-color:#17a2b8; color:white; min-width:40px; height:34px; padding:6px 12px;",
+                             title = "Auto-fit table to window",
+                             onclick = "console.log('Reset button clicked'); window.tableAutoWidth = true; if (typeof window.resizeTableToWindow === 'function') { window.resizeTableToWindow(); setTimeout(function() { var table = $('#table table').DataTable(); if (table) { table.columns.adjust(); console.log('DataTables columns adjusted'); } }, 50); } else { console.error('resizeTableToWindow not found'); }",
+                             icon("expand")
+                           )
+                  )
               )
           ),
           
@@ -1140,6 +1295,110 @@ ui <- fluidPage(
       )
   )
 )
+
+# ============================================================================
+# HELPER FUNCTIONS - KEYBOARD SHORTCUTS
+# ============================================================================
+
+#' Generate Keyboard Shortcuts Section for Modal
+#' 
+#' Creates an HTML section displaying all keyboard shortcuts from config
+#' Groups shortcuts by category with icons and descriptions
+#' 
+#' @param config List - Parsed keyboard_shortcuts.json configuration
+#' @return tags object with HTML for shortcuts section
+generate_keyboard_shortcuts_section <- function(config) {
+  if (is.null(config) || is.null(config$shortcuts)) {
+    return(tags$p("No shortcuts configured"))
+  }
+  
+  # Category metadata
+  category_info <- list(
+    clipboard = list(icon = "clipboard", label = "Clipboard Operations", color = "#e67e22"),
+    data = list(icon = "save", label = "Data Operations", color = "#27ae60"),
+    navigation = list(icon = "compass", label = "Navigation", color = "#3498db"),
+    ui = list(icon = "window-maximize", label = "Interface", color = "#9b59b6")
+  )
+  
+  sections <- list()
+  
+  for (cat_name in names(config$shortcuts)) {
+    cat_config <- config$shortcuts[[cat_name]]
+    cat_info <- category_info[[cat_name]]
+    
+    if (is.null(cat_info)) next
+    
+    # Build table rows for this category
+    rows <- list()
+    for (action_name in names(cat_config)) {
+      action <- cat_config[[action_name]]
+      
+      # Skip if disabled
+      if (!is.null(action$enabled) && !action$enabled) next
+      
+      # Build shortcut keys display
+      keys <- action$keys
+      alt_keys <- if (!is.null(action$alt_keys)) {
+        paste0(" or ", tags$kbd(action$alt_keys))
+      } else {
+        ""
+      }
+      
+      # Scope warning
+      scope_note <- if (!is.null(action$scope) && action$scope == "elements_table_only") {
+        tags$div(
+          style = "margin-top: 5px;",
+          tags$small(
+            style = "color: #e67e22;",
+            icon("exclamation-triangle"), " Elements table only"
+          )
+        )
+      } else {
+        NULL
+      }
+      
+      rows[[action_name]] <- tags$tr(
+        tags$td(
+          tags$kbd(keys),
+          if (nchar(alt_keys) > 0) tags$span(style = "color: #7f8c8d;", alt_keys) else NULL,
+          style = "width: 250px; font-weight: 500;"
+        ),
+        tags$td(
+          action$description,
+          scope_note
+        )
+      )
+    }
+    
+    # Create section if we have rows
+    if (length(rows) > 0) {
+      sections[[cat_name]] <- tags$div(
+        style = "margin-bottom: 25px;",
+        tags$h4(
+          style = sprintf("color: #2c3e50; border-bottom: 2px solid %s; padding-bottom: 8px; margin-bottom: 15px;", cat_info$color),
+          icon(cat_info$icon), " ", cat_info$label
+        ),
+        tags$table(
+          class = "table table-hover",
+          style = "margin-bottom: 0;",
+          tags$tbody(rows)
+        )
+      )
+    }
+  }
+  
+  # Return wrapped sections
+  tags$div(
+    tags$div(
+      style = "background: #e8f5e9; padding: 12px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #27ae60;",
+      icon("keyboard"), " ", 
+      tags$strong("Keyboard Shortcuts:"), 
+      " Use these shortcuts for faster workflow. Press ",
+      tags$kbd("F1"), " anytime to view this help."
+    ),
+    sections
+  )
+}
 
 # ============================================================================
 # SERVER FUNCTION
@@ -1524,6 +1783,57 @@ server <- function(input, output, session) {
     return(tabState$tabs[[active_idx]]$order)
   }
   
+  #' Detect duplicate elements in current data
+  #' 
+  #' Identifies rows that have duplicate values in Element or castor_kolom columns (non-empty)
+  #' 
+  #' @param data data.table to check for duplicates
+  #' @return List with duplicate_rows_element, duplicate_values_element, duplicate_rows_castor, duplicate_values_castor
+  detect_duplicate_elements <- function(data) {
+    result <- list(
+      duplicate_rows_element = integer(0),
+      duplicate_values_element = character(0),
+      duplicate_rows_castor = integer(0),
+      duplicate_values_castor = character(0)
+    )
+    
+    if (is.null(data) || nrow(data) == 0) {
+      return(result)
+    }
+    
+    # Check for duplicate Elements
+    if ("Element" %in% names(data)) {
+      valid_elements <- data$Element[!is.na(data$Element) & data$Element != ""]
+      if (length(valid_elements) > 0) {
+        element_counts <- table(valid_elements)
+        duplicate_values_element <- names(element_counts[element_counts > 1])
+        
+        if (length(duplicate_values_element) > 0) {
+          result$duplicate_rows_element <- which(data$Element %in% duplicate_values_element & 
+                                                  !is.na(data$Element) & data$Element != "")
+          result$duplicate_values_element <- duplicate_values_element
+        }
+      }
+    }
+    
+    # Check for duplicate Castor Names (castor_kolom)
+    if ("castor_kolom" %in% names(data)) {
+      valid_castor <- data$castor_kolom[!is.na(data$castor_kolom) & data$castor_kolom != ""]
+      if (length(valid_castor) > 0) {
+        castor_counts <- table(valid_castor)
+        duplicate_values_castor <- names(castor_counts[castor_counts > 1])
+        
+        if (length(duplicate_values_castor) > 0) {
+          result$duplicate_rows_castor <- which(data$castor_kolom %in% duplicate_values_castor & 
+                                                !is.na(data$castor_kolom) & data$castor_kolom != "")
+          result$duplicate_values_castor <- duplicate_values_castor
+        }
+      }
+    }
+    
+    return(result)
+  }
+  
   #' Get data for selected rows from active tab
   #' 
   #' @param selected_indices Vector of row indices (1-based)
@@ -1834,6 +2144,9 @@ server <- function(input, output, session) {
   
   # Trigger to force table UI refresh after data changes
   forceTableRefresh <- reactiveVal(0)
+  
+  # Track duplicate elements for validation
+  duplicateElements <- reactiveVal(list())
   
   # ============================================================================
   # TAB BUTTONS RENDERING
@@ -2870,6 +3183,9 @@ server <- function(input, output, session) {
     active_data <- get_active_tab_data()
     if (!is.null(active_data)) {
       render_table(active_data, input$file, mode = "proxy")
+      
+      # Adjust Scroller after tab switch to fix viewport and row positions
+      session$sendCustomMessage("adjustScroller", list())
     }
   })
   
@@ -3166,11 +3482,14 @@ server <- function(input, output, session) {
   })
   
   # Observer: Adjust table container dimensions dynamically
-  # Width is controlled by user input, height is fixed at 700px
+  # Width is controlled by user input, height is calculated from viewport
+  # If user hasn't manually adjusted slider, width will be set by JavaScript window resize handler
   observe({
     width <- paste0(input$width, "px")
-    height <- 700
-    session$sendCustomMessage(type = "resizeDiv", message = list(width = width, height = height))
+    # Height will be calculated dynamically in JavaScript based on viewport
+    height <- 700  # Default fallback
+    # Send manual flag = TRUE to indicate this is a user-initiated change
+    session$sendCustomMessage(type = "resizeDiv", message = list(width = width, height = height, manual = TRUE))
   })
   
   # ============================================================================
@@ -3193,6 +3512,9 @@ server <- function(input, output, session) {
   
   observeEvent(input$file, {
     req(is_selectable_table(input$file))
+    
+    # Start timing table switch operation
+    perf_start <- Sys.time()
     
     # Clear checkbox selections when switching tables to prevent stale selections
     session$sendCustomMessage("clearCheckboxes", list())
@@ -3339,6 +3661,21 @@ server <- function(input, output, session) {
     previous_table(input$file)
     
     render_table(get_active_tab_data(), input$file)
+    
+    # Adjust Scroller after table switch to fix viewport and row positions
+    session$sendCustomMessage("adjustScroller", list())
+    
+    # Log table switch performance
+    perf_duration <- as.numeric(difftime(Sys.time(), perf_start, units = "secs"))
+    row_count <- nrow(get_active_tab_data())
+    color <- if (perf_duration < 0.5) "\033[32m" else if (perf_duration < 2) "\033[33m" else "\033[31m"
+    cat(sprintf(
+      "%s[Perf] ✓ table_switch (%s): %.3fs (%d rows)\033[0m\n",
+      color,
+      input$file,
+      perf_duration,
+      row_count
+    ))
   })
   
   # ============================================================================
@@ -3397,6 +3734,24 @@ server <- function(input, output, session) {
   # - Prevents blocking the Shiny UI during long-running API calls
   # - Uses processx package for robust process management
   # - Creates "done flag" file to signal completion
+  
+  # ============================================================================
+  # KEYBOARD SHORTCUTS - F5 REFRESH
+  # ============================================================================
+  # Refresh current tab when F5 is pressed (soft refresh, no page reload)
+  observeEvent(input$keyboard_refresh, {
+    req(input$file)  # Need active tab
+    
+    tryCatch({
+      # Re-render current tab with latest data
+      active_data <- get_active_tab_data()
+      render_table(active_data, input$file, mode = "proxy")
+      
+      showNotification("Table refreshed", type = "message", duration = 2)
+    }, error = function(e) {
+      showNotification(paste("Refresh failed:", e$message), type = "error")
+    })
+  })
   
   observeEvent(input$refresh_castor, {
     # Check if API credentials are configured
@@ -4643,6 +4998,474 @@ server <- function(input, output, session) {
     ))
   })
   
+  # ============================================================================
+  # KEYBOARD SHORTCUTS MODAL
+  # ============================================================================
+  # Show modal with all available keyboard shortcuts and their descriptions
+  
+  observeEvent(input$show_shortcuts, {
+    # Load keyboard shortcuts configuration
+    shortcuts_config <- tryCatch({
+      jsonlite::fromJSON(file.path("config", "keyboard_shortcuts.json"))
+    }, error = function(e) {
+      NULL
+    })
+    
+    # Generate keyboard shortcuts HTML
+    keyboard_shortcuts_html <- if (!is.null(shortcuts_config)) {
+      generate_keyboard_shortcuts_section(shortcuts_config)
+    } else {
+      tags$p(
+        style = "color: #e74c3c; padding: 10px; background: #fadbd8;",
+        icon("exclamation-triangle"), " Keyboard shortcuts configuration not found."
+      )
+    }
+    
+    showModalSafe(modalDialog(
+      title = tags$div(
+        style = "display: flex; align-items: center; gap: 10px;",
+        icon("keyboard", style = "font-size: 24px;"),
+        "User Guide & Keyboard Shortcuts"
+      ),
+      size = "l",
+      easyClose = TRUE,
+      footer = tags$button("Close", type = "button", class = "btn btn-primary", `data-dismiss` = "modal"),
+      
+      tags$div(
+        style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;",
+        
+        # Keyboard Shortcuts Section (NEW - at the top)
+        keyboard_shortcuts_html,
+        
+        # Performance Monitoring Section
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("chart-line"), " Performance Monitoring"
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 0;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$kbd("Ctrl"), " + ", tags$kbd("Shift"), " + ", tags$kbd("P"), style = "width: 250px; font-weight: 500;"),
+                tags$td("Toggle performance panel (shows metrics & memory usage)")
+              ),
+              tags$tr(
+                tags$td(tags$kbd("Ctrl"), " + ", tags$kbd("Shift"), " + ", tags$kbd("L")),
+                tags$td("Log performance summary to console")
+              )
+            )
+          )
+        ),
+        
+        # Table Navigation Section
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #27ae60; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("table"), " Table Navigation"
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 0;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$kbd("Click"), " on tab", style = "width: 250px; font-weight: 500;"),
+                tags$td("Switch to tab")
+              ),
+              tags$tr(
+                tags$td(tags$kbd("Double-click"), " on tab"),
+                tags$td("Rename tab (inline editing)")
+              ),
+              tags$tr(
+                tags$td(tags$kbd("×"), " button on tab"),
+                tags$td("Close tab (requires confirmation)")
+              )
+            )
+          )
+        ),
+        
+        # Clipboard Operations Section
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #e67e22; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("clipboard"), " Clipboard Operations"
+          ),
+          tags$p(
+            style = "background-color: #fff3cd; padding: 10px; border-left: 4px solid #ffc107; margin-bottom: 15px;",
+            icon("info-circle"), " ", tags$strong("Note:"), " Copy/Cut/Paste only works for the 'elements' table to maintain data integrity."
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 0;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$button(icon("copy"), class = "btn btn-xs", style = "background-color:#007bff; color:white;"), " button", style = "width: 250px; font-weight: 500;"),
+                tags$td("Copy selected rows (with related checkboxes/radiobuttons)")
+              ),
+              tags$tr(
+                tags$td(tags$button(icon("cut"), class = "btn btn-xs", style = "background-color:#ff9800; color:white;"), " button"),
+                tags$td("Cut selected rows (removes from current tab)")
+              ),
+              tags$tr(
+                tags$td(tags$button(icon("paste"), class = "btn btn-xs", style = "background-color:#28a745; color:white;"), " button"),
+                tags$td("Paste copied/cut rows to current tab")
+              )
+            )
+          )
+        ),
+        
+        # Row Operations Section
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #9c27b0; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("list"), " Row Operations"
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 0;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$button("+", class = "btn btn-xs btn-success"), " button", style = "width: 250px; font-weight: 500;"),
+                tags$td("Add new row at bottom of table")
+              ),
+              tags$tr(
+                tags$td(tags$button("-", class = "btn btn-xs btn-danger"), " button"),
+                tags$td("Delete selected rows (requires confirmation)")
+              ),
+              tags$tr(
+                tags$td(tags$button(icon("arrows-alt-v"), class = "btn btn-xs", style = "background-color:#9c27b0; color:white;"), " button"),
+                tags$td("Move selected rows to another position")
+              )
+            )
+          )
+        ),
+        
+        # Cell Editing Section
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #e74c3c; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("edit"), " Cell Editing"
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 0;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$kbd("Click"), " on cell", style = "width: 250px; font-weight: 500;"),
+                tags$td("Edit cell value (text cells)")
+              ),
+              tags$tr(
+                tags$td(tags$kbd("Click"), " on dropdown"),
+                tags$td("Open dropdown menu (lazy-loaded on first click)")
+              ),
+              tags$tr(
+                tags$td(tags$kbd("Double-click"), " on dropdown"),
+                tags$td("Edit dropdown value directly (manual entry)")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Add value..."), " option"),
+                tags$td("Add custom value to dropdown options")
+              )
+            )
+          )
+        ),
+        
+        # Tab Management Section
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #17a2b8; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("folder-plus"), " Tab Management"
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 0;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$button("+ New Tab", class = "btn btn-xs btn-success"), " button", style = "width: 250px; font-weight: 500;"),
+                tags$td("Create new tab (empty or copy data from existing tab)")
+              ),
+              tags$tr(
+                tags$td(tags$kbd("×"), " on tab"),
+                tags$td("Close tab (confirmation required if more than 1 tab exists)")
+              ),
+              tags$tr(
+                tags$td(tags$kbd("Double-click"), " on tab name"),
+                tags$td("Rename tab inline (max 50 characters)")
+              )
+            )
+          )
+        ),
+        
+        # Auto-Fill Section
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #ff5722; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("magic"), " Auto-Fill (waarde tables only)"
+          ),
+          tags$p(
+            style = "background-color: #fff3cd; padding: 10px; border-left: 4px solid #ffc107; margin-bottom: 15px;",
+            icon("info-circle"), " ", tags$strong("Note:"), " Auto-fill is only available for waarde_radiobuttons and waarde_checkboxes tables."
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 0;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$button(icon("magic"), " Auto-fill", class = "btn btn-xs btn-warning"), " button", style = "width: 250px; font-weight: 500;"),
+                tags$td("Automatically suggests Dutch translations for EPIC values")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Translation source")),
+                tags$td("Uses DeepL API (if configured) or MyMemory fallback + Medical Dictionary")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Fuzzy matching")),
+                tags$td("Suggests similar values from existing Castor field options")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Batch processing")),
+                tags$td("Processes selected rows or all empty cells in current tab")
+              )
+            )
+          )
+        ),
+        
+        # Menu Bar Functions Section
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #607d8b; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("bars"), " Menu Bar Functions"
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 0;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$strong("File → Save changes"), style = "width: 250px; font-weight: 500;"),
+                tags$td("Save all changes to database and CSV files")
+              ),
+              tags$tr(
+                tags$td(tags$strong("File → Undo all changes")),
+                tags$td("Revert to last saved state (reload from database)")
+              ),
+              tags$tr(
+                tags$td(tags$strong("File → Manage input files")),
+                tags$td("Select, view, and delete EPIC input CSV/Excel files")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Castor → Update credentials")),
+                tags$td("Configure Castor API credentials and DeepL API key")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Castor → Refresh metadata")),
+                tags$td("Update field definitions and options from Castor API")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Castor → Medical Dictionary")),
+                tags$td("Manage common and medical term translations")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Castor → Create CSVs")),
+                tags$td("Generate baseline, follow-up, and/or biobank export files")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Castor → Castor upload")),
+                tags$td("Upload generated CSVs directly to Castor EDC")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Import → Import Wizard")),
+                tags$td("Step-by-step wizard for importing external data files")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Help → User Guide")),
+                tags$td("Show this help dialog with all shortcuts and features")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Help → About")),
+                tags$td("Application information and version details")
+              )
+            )
+          )
+        ),
+        
+        # Import Wizard Section (NEW)
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #00bcd4; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("file-import"), " Import Wizard"
+          ),
+          tags$p(
+            style = "margin-bottom: 15px;",
+            "The Import Wizard provides a step-by-step interface for importing external data files with automatic structure detection, interactive column mapping, and data transformation."
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 15px;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$strong("Step 1: Select Type"), style = "width: 250px; font-weight: 500;"),
+                tags$td("Choose import type (EPIC Baseline/Follow-up, Biobank, Custom)")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Step 2: Upload File")),
+                tags$td("Select CSV/Excel file; auto-detects encoding, structure, and sheets")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Step 3: Map Columns")),
+                tags$td("Match required columns to your file's columns with validation")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Step 4: Review & Export")),
+                tags$td("Preview transformed data and export to CSV")
+              )
+            )
+          ),
+          tags$div(
+            style = "background-color: #e3f2fd; padding: 12px; border-left: 4px solid #2196f3; border-radius: 4px; margin-bottom: 15px;",
+            tags$h5(
+              style = "margin-top: 0; color: #1976d2;",
+              icon("star"), " Key Features"
+            ),
+            tags$ul(
+              style = "margin-bottom: 0;",
+              tags$li(tags$strong("Multi-format support:"), " CSV, Excel (.xlsx/.xls), TSV with automatic detection"),
+              tags$li(tags$strong("Sheet selection:"), " Choose specific sheets from Excel workbooks"),
+              tags$li(tags$strong("Template system:"), " Save and reuse mapping configurations"),
+              tags$li(tags$strong("Smart validation:"), " Real-time feedback on required columns and data types"),
+              tags$li(tags$strong("Sample preview:"), " View actual data while mapping columns"),
+              tags$li(tags$strong("Direct export:"), " Transform and export to CSV in one workflow")
+            )
+          ),
+          tags$div(
+            style = "background-color: #fff3cd; padding: 12px; border-left: 4px solid #ffc107; border-radius: 4px;",
+            tags$h5(
+              style = "margin-top: 0; color: #856404;",
+              icon("lightbulb"), " Tips"
+            ),
+            tags$ul(
+              style = "margin-bottom: 0;",
+              tags$li("Use templates for recurring imports with the same structure"),
+              tags$li("Check sample data preview to verify correct column selection"),
+              tags$li("For Excel files, ensure you've selected the correct sheet"),
+              tags$li("All required columns (marked with *) must be mapped before transforming"),
+              tags$li("Test with small files first to validate your mapping configuration")
+            )
+          )
+        ),
+        
+        # Table Controls Section
+        tags$div(
+          style = "margin-bottom: 25px;",
+          tags$h4(
+            style = "color: #2c3e50; border-bottom: 2px solid #795548; padding-bottom: 8px; margin-bottom: 15px;",
+            icon("sliders-h"), " Table Controls"
+          ),
+          tags$table(
+            class = "table table-hover",
+            style = "margin-bottom: 0;",
+            tags$tbody(
+              tags$tr(
+                tags$td(tags$strong("File selector"), style = "width: 250px; font-weight: 500;"),
+                tags$td("Switch between mapping tables (elements, waarde_radiobuttons, waarde_checkboxes)")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Search box")),
+                tags$td("Filter table rows in real-time (searches all columns)")
+              ),
+              tags$tr(
+                tags$td(tags$strong("Table resize grip")),
+                tags$td("Drag the grip in bottom-right corner to resize table"),
+                tags$td(),
+                tags$td(tags$strong("Auto-fit button")),
+                tags$td("Click expand icon to auto-fit table to window width")
+              ),
+              tags$tr(
+                tags$td(icon("exclamation-triangle"), tags$strong(" Warning icon")),
+                tags$td("Appears when row count exceeds 200 (performance warning)")
+              ),
+              tags$tr(
+                tags$td(icon("list"), " / ", icon("th"), tags$strong(" Render mode")),
+                tags$td("Shows current rendering mode: virtual scrolling or pagination")
+              )
+            )
+          )
+        ),
+        
+        # Tips Section
+        tags$div(
+          style = "margin-top: 25px; padding: 15px; background-color: #e8f5e9; border-left: 4px solid #4caf50; border-radius: 4px;",
+          tags$h5(
+            style = "margin-top: 0; color: #2e7d32;",
+            icon("lightbulb"), " Tips"
+          ),
+          tags$ul(
+            style = "margin-bottom: 0;",
+            tags$li("Use ", tags$kbd("Ctrl+Shift+P"), " to monitor performance during large operations"),
+            tags$li("Tab switches preserve your active tab when switching between tables"),
+            tags$li("Copy/paste operations automatically handle related checkbox and radiobutton data"),
+            tags$li("The performance panel shows real-time memory usage and operation timings")
+          )
+        )
+      )
+    ))
+  })
+  
+  # ============================================================================
+  # ABOUT MODAL
+  # ============================================================================
+  # Show application information and version
+  
+  observeEvent(input$show_about, {
+    showModalSafe(modalDialog(
+      title = tags$div(
+        style = "display: flex; align-items: center; gap: 10px;",
+        icon("info-circle", style = "font-size: 24px;"),
+        "About Epic2Castor"
+      ),
+      size = "m",
+      easyClose = TRUE,
+      footer = tags$button("Close", type = "button", class = "btn btn-primary", `data-dismiss` = "modal"),
+      
+      tags$div(
+        style = "text-align: center; padding: 20px;",
+        tags$img(src = "img/logo.png", style = "max-width: 200px; margin-bottom: 20px;"),
+        tags$h4("Epic2Castor Data Mapping Application"),
+        tags$p(
+          style = "color: #666; margin-bottom: 30px;",
+          "Interactive Shiny application for mapping EPIC hospital data to Castor EDC"
+        ),
+        tags$hr(),
+        tags$div(
+          style = "text-align: left;",
+          tags$p(tags$strong("Features:")),
+          tags$ul(
+            tags$li("Excel-like spreadsheet interface for data mapping"),
+            tags$li("Tab-based organization for logical data grouping"),
+            tags$li("Copy/paste functionality for efficient data entry"),
+            tags$li("Auto-fill intelligence with translation APIs"),
+            tags$li("Performance monitoring and optimization"),
+            tags$li("Direct Castor API integration")
+          )
+        ),
+        tags$hr(),
+        tags$p(
+          style = "color: #999; font-size: 12px; margin-top: 20px;",
+          "Built with Shiny, DataTables, and Select2"
+        )
+      )
+    ))
+  })
+  
   # Handler for "Update Credentials Now" button from the refresh_castor warning modal
   observeEvent(input$go_to_credentials, {
     removeModalSafe()  # Close the warning modal first
@@ -4967,7 +5790,11 @@ server <- function(input, output, session) {
     results = NULL,
     original_data = NULL,
     table_name = NULL,
-    updated_data_to_render = NULL  # For triggering table re-render after autofill
+    updated_data_to_render = NULL,  # For triggering table re-render after autofill
+    active = FALSE,  # Flag to track if autofill process should continue
+    pending_table_name = NULL,  # Store table info for config->confirm flow
+    pending_tab_name = NULL,
+    pending_data = NULL
   )
   
   # Observer: render table when autofill data is updated
@@ -4980,67 +5807,103 @@ server <- function(input, output, session) {
     autofillState$updated_data_to_render <- NULL
   })
   
-  # Handle autofill button click
-  observeEvent(input$autofill_epic_values, {
-    req(input$file, mappingData)
+  # Handle autofill configuration confirmation
+  observeEvent(input$confirm_autofill_config, {
+    req(input$file)
     
-    table_name <- input$file
-    
-    # Validate table type
-    if (!table_name %in% c("waarde_radiobuttons", "waarde_checkboxes")) {
-      showModalSafe(modalDialog(
-        title = "Error",
-        "Auto-fill is only available for radiobuttons and checkboxes tables.",
-        easyClose = TRUE
-      ))
-      return()
-    }
-    
-    # Capture current tab name and data before entering later() context
-    current_tab <- isolate({
-      if (!is.null(input$tab_name_meta) && input$tab_name_meta != "") {
-        input$tab_name_meta
-      } else {
-        NULL
-      }
+    # Save ML setting to config file
+    tryCatch({
+      settings <- list(
+        use_ml_autofill = input$use_ml_autofill,
+        ml_confidence_threshold = 50,
+        last_updated = format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+      )
+      jsonlite::write_json(settings, "config/autofill_settings.json", auto_unbox = TRUE, pretty = TRUE)
+    }, error = function(e) {
+      cat("Warning: Could not save autofill settings:", conditionMessage(e), "\n")
     })
     
-    # Capture current data from active tab
-    current_data <- isolate({
-      if (!is.null(tabState$activeTab) && length(tabState$tabs) > 0) {
-        active_idx <- which(sapply(tabState$tabs, function(t) t$id == tabState$activeTab))
-        if (length(active_idx) > 0) {
-          tabState$tabs[[active_idx]]$data
-        } else {
-          mappingData[[table_name]]
-        }
-      } else {
-        mappingData[[table_name]]
-      }
-    })
+    # Get current data from pending state (set by autofill_epic_values handler)
+    table_name <- autofillState$pending_table_name
+    current_tab <- autofillState$pending_tab_name
+    current_data <- autofillState$pending_data
     
-    # Show progress modal
+    # Validate we have data
+    req(table_name, current_data)
+    
+    # Capture ML setting before later() callback (reactive value not accessible in later())
+    use_ml <- input$use_ml_autofill
+    
+    # Close config modal and show progress modal
+    removeModalSafe()
+    
+    # Set active flag to indicate autofill is running
+    autofillState$active <- TRUE
+    
     showModalSafe(modalDialog(
       title = "Processing Auto-Fill...",
       div(
-        style = "text-align: center; padding: 20px;",
-        tags$i(class = "fa fa-spinner fa-spin fa-3x"),
-        p(style = "margin-top: 20px;", "Analyzing data and generating suggestions...")
+        style = "text-align: center; padding: 30px;",
+        tags$i(class = "fa fa-spinner fa-spin fa-4x", style = "color: #007bff;"),
+        tags$h4(style = "margin-top: 25px; color: #333;", "Analyzing EPIC values..."),
+        tags$p(
+          style = "margin-top: 15px; color: #666; font-size: 14px;",
+          if (use_ml) {
+            "Applying 7 matching strategies including ML predictions"
+          } else {
+            "Applying 6 matching strategies"
+          }
+        ),
+        div(
+          style = "margin-top: 25px; padding: 15px; background: linear-gradient(90deg, #007bff 0%, #28a745 100%); height: 4px; border-radius: 2px; animation: pulse 1.5s ease-in-out infinite;",
+          tags$style(HTML("
+            @keyframes pulse {
+              0%, 100% { opacity: 0.6; }
+              50% { opacity: 1; }
+            }
+          "))
+        ),
+        if (use_ml) {
+          tags$p(
+            style = "margin-top: 20px; padding: 10px; background-color: #e7f3ff; border-left: 3px solid #007bff; border-radius: 3px; font-size: 13px; color: #004085;",
+            tags$i(class = "fa fa-brain", style = "margin-right: 8px;"),
+            tags$strong("ML Mode Active:"),
+            " Using XGBoost model for intelligent predictions"
+          )
+        } else {
+          tags$p(
+            style = "margin-top: 20px; font-size: 12px; color: #999;",
+            "Tip: Enable ML predictions in settings for smarter suggestions"
+          )
+        }
       ),
-      footer = NULL,
+      footer = tagList(
+        modalButton("Cancel")
+      ),
       easyClose = FALSE
     ))
     
     # Run autofill in background
     later::later(function() {
       tryCatch({
+        # Check if autofill is still active (modal not closed)
+        if (!isTRUE(isolate(autofillState$active))) {
+          return(invisible(NULL))  # User cancelled, stop processing
+        }
+        
         # Run autofill process with current data
         results <- process_autofill(
           table_name = table_name,
           tab_name = current_tab,
           min_confidence = 70,
-          current_data = current_data
+          current_data = current_data,
+          use_ml = use_ml  # Use captured value instead of reactive input
         )
+        
+        # Check again if still active after processing
+        if (!isTRUE(isolate(autofillState$active))) {
+          return(invisible(NULL))  # User cancelled during processing
+        }
         
         # Store results
         autofillState$results <- results
@@ -5049,14 +5912,14 @@ server <- function(input, output, session) {
         
         # Show results modal
         removeModalSafe()
+        autofillState$active <- FALSE  # Reset flag
         
         if (nrow(results[confidence > 0]) == 0) {
-          # Provide specific message based on why no suggestions were found
+          # [existing no results code remains unchanged]
           total_rows <- nrow(results)
           empty_castor <- sum(results$strategy == "Skipped", na.rm = TRUE)
           all_failed <- sum(results$confidence == 0 & results$strategy != "Skipped", na.rm = TRUE)
           
-          # Determine appropriate user message
           if (total_rows == 0) {
             message <- "Alle EPIC values zijn al ingevuld. Er zijn geen lege waarden om te verwerken."
             icon <- "check-circle"
@@ -5092,6 +5955,9 @@ server <- function(input, output, session) {
         }
         
       }, error = function(e) {
+        # Reset active flag on error
+        autofillState$active <- FALSE
+        
         removeModalSafe()
         showModalSafe(modalDialog(
           title = "Error",
@@ -5101,6 +5967,82 @@ server <- function(input, output, session) {
         ))
       })
     }, delay = 0.1)
+  })
+  
+  # Handle autofill button click - show config modal
+  observeEvent(input$autofill_epic_values, {
+    req(input$file, mappingData)
+    
+    table_name <- input$file
+    
+    # Validate table type
+    if (!table_name %in% c("waarde_radiobuttons", "waarde_checkboxes")) {
+      showModalSafe(modalDialog(
+        title = "Error",
+        "Auto-fill is only available for radiobuttons and checkboxes tables.",
+        easyClose = TRUE
+      ))
+      return()
+    }
+    
+    # Capture current tab name and data
+    current_tab <- isolate({
+      if (!is.null(input$tab_name_meta) && input$tab_name_meta != "") {
+        input$tab_name_meta
+      } else {
+        NULL
+      }
+    })
+    
+    current_data <- isolate({
+      if (!is.null(tabState$activeTab) && length(tabState$tabs) > 0) {
+        active_idx <- which(sapply(tabState$tabs, function(t) t$id == tabState$activeTab))
+        if (length(active_idx) > 0) {
+          tabState$tabs[[active_idx]]$data
+        } else {
+          mappingData[[table_name]]
+        }
+      } else {
+        mappingData[[table_name]]
+      }
+    })
+    
+    # Store data in autofillState for confirm handler
+    autofillState$pending_table_name <- table_name
+    autofillState$pending_tab_name <- current_tab
+    autofillState$pending_data <- current_data
+    
+    # Load ML autofill settings
+    ml_settings <- tryCatch({
+      jsonlite::fromJSON("config/autofill_settings.json")
+    }, error = function(e) {
+      list(use_ml_autofill = TRUE, ml_confidence_threshold = 50)
+    })
+    
+    # Show configuration modal first
+    showModalSafe(modalDialog(
+      title = "Auto-Fill Configuration",
+      div(
+        style = "padding: 20px;",
+        h4("Machine Learning Predictions"),
+        p("Enable experimental ML-based autofill? This uses trained XGBoost model to predict EPIC values."),
+        checkboxInput("use_ml_autofill", 
+                     "Use ML predictions (experimental)", 
+                     value = ml_settings$use_ml_autofill),
+        tags$small(style = "color: #666;", 
+                  sprintf("Current model: %s classes trained, confidence threshold: %d%%",
+                         if (file.exists("config/ml_models/autofill_metadata.rds")) {
+                           meta <- readRDS("config/ml_models/autofill_metadata.rds")
+                           length(meta$epic_levels)
+                         } else { "No model" },
+                         ml_settings$ml_confidence_threshold))
+      ),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_autofill_config", "Continue", class = "btn-primary")
+      ),
+      easyClose = FALSE
+    ))
   })
   
   # Function to show autofill preview modal
@@ -5374,6 +6316,10 @@ server <- function(input, output, session) {
         autofillState$results <- NULL
         autofillState$original_data <- NULL
         autofillState$table_name <- NULL
+        autofillState$active <- FALSE
+        autofillState$pending_table_name <- NULL
+        autofillState$pending_tab_name <- NULL
+        autofillState$pending_data <- NULL
         
       }, error = function(e) {
         showModalSafe(modalDialog(
@@ -5616,8 +6562,9 @@ server <- function(input, output, session) {
     if (nrow(current_checkbox) > 0) {
       if ("tab_name_meta" %in% names(elements_all)) {
         # Tab-aware cleanup: match on Element + tab metadata
-        valid_elements <- elements_all[!is.na(Element) & Element != "", 
-                                       .(Element, tab_name_meta, tab_order_meta)]
+        # Use unique() to prevent cartesian product when duplicate Elements exist
+        valid_elements <- unique(elements_all[!is.na(Element) & Element != "", 
+                                       .(Element, tab_name_meta, tab_order_meta)])
         
         # Ensure column types match for merge operation
         if ("tab_name_meta" %in% names(current_checkbox)) {
@@ -5636,6 +6583,41 @@ server <- function(input, output, session) {
         valid_elements <- unique(elements_all[!is.na(Element) & Element != "", .(Element)])
         current_checkbox <- current_checkbox[Element %in% valid_elements$Element]
       }
+    }
+    
+    # Sort checkbox rows to cluster them by Element
+    # Preserve row order from elements table instead of alphabetical sorting
+    if (nrow(current_checkbox) > 0 && nrow(elements_all) > 0) {
+      # Add position index from elements table to preserve original order
+      elements_all[, element_position := .I]
+      
+      if ("tab_name_meta" %in% names(current_checkbox) && "tab_name_meta" %in% names(elements_all)) {
+        # Merge to get element position, matching on Element + tab metadata
+        current_checkbox <- merge(
+          current_checkbox,
+          elements_all[, .(Element, tab_name_meta, tab_order_meta, element_position)],
+          by = c("Element", "tab_name_meta", "tab_order_meta"),
+          all.x = TRUE,
+          sort = FALSE
+        )
+        # Sort by: element position (preserves elements table order), then option
+        setorder(current_checkbox, element_position, kolom_toevoeging, na.last = TRUE)
+      } else {
+        # Merge to get element position (no tab metadata)
+        current_checkbox <- merge(
+          current_checkbox,
+          unique(elements_all[, .(Element, element_position)]),
+          by = "Element",
+          all.x = TRUE,
+          sort = FALSE
+        )
+        # Sort by: element position (preserves elements table order), then option
+        setorder(current_checkbox, element_position, kolom_toevoeging, na.last = TRUE)
+      }
+      
+      # Remove temporary position column
+      current_checkbox[, element_position := NULL]
+      elements_all[, element_position := NULL]
     }
 
     mappingData[["waarde_checkboxes"]] <<- current_checkbox
@@ -5767,8 +6749,9 @@ server <- function(input, output, session) {
     if (nrow(current_radio) > 0) {
       if ("tab_name_meta" %in% names(elements_all)) {
         # Tab-aware cleanup: match on Element + tab metadata
-        valid_elements <- elements_all[!is.na(Element) & Element != "", 
-                                       .(Element, tab_name_meta, tab_order_meta)]
+        # Use unique() to prevent cartesian product when duplicate Elements exist
+        valid_elements <- unique(elements_all[!is.na(Element) & Element != "", 
+                                       .(Element, tab_name_meta, tab_order_meta)])
         
         # Ensure column types match for merge operation
         if ("tab_name_meta" %in% names(current_radio)) {
@@ -5788,15 +6771,91 @@ server <- function(input, output, session) {
         current_radio <- current_radio[Element %in% valid_elements$Element]
       }
     }
+    
+    # Sort radiobutton rows to cluster them by Element
+    # Preserve row order from elements table instead of alphabetical sorting
+    if (nrow(current_radio) > 0 && nrow(elements_all) > 0) {
+      # Add position index from elements table to preserve original order
+      elements_all[, element_position := .I]
+      
+      if ("tab_name_meta" %in% names(current_radio) && "tab_name_meta" %in% names(elements_all)) {
+        # Merge to get element position, matching on Element + tab metadata
+        current_radio <- merge(
+          current_radio,
+          elements_all[, .(Element, tab_name_meta, tab_order_meta, element_position)],
+          by = c("Element", "tab_name_meta", "tab_order_meta"),
+          all.x = TRUE,
+          sort = FALSE
+        )
+        # Sort by: element position (preserves elements table order), then option
+        setorder(current_radio, element_position, castor_waarde, na.last = TRUE)
+      } else {
+        # Merge to get element position (no tab metadata)
+        current_radio <- merge(
+          current_radio,
+          unique(elements_all[, .(Element, element_position)]),
+          by = "Element",
+          all.x = TRUE,
+          sort = FALSE
+        )
+        # Sort by: element position (preserves elements table order), then option
+        setorder(current_radio, element_position, castor_waarde, na.last = TRUE)
+      }
+      
+      # Remove temporary position column
+      current_radio[, element_position := NULL]
+      elements_all[, element_position := NULL]
+    }
 
     mappingData[["waarde_radiobuttons"]] <<- current_radio
   }
   
   # ============================================================================
+  # UPDATE RENDER MODE BADGE (STEP 5)
+  # ============================================================================
+  # Shows badge indicating current pagination strategy (virtual scrolling vs pagination)
+  # Provides transparency about performance optimizations being applied
+  #
+  # @param row_count Number of rows in current dataset
+  # @param use_scroller Boolean indicating if Scroller extension is active
+  # @return NULL (side effect: shows/hides render mode badge)
+  
+  update_render_mode_badge <- function(row_count, use_scroller) {
+    if (row_count < 100) {
+      # Small dataset - no need to show badge
+      shinyjs::hide("render_mode_badge")
+      output$render_mode_content <- renderUI({ NULL })
+      return()
+    }
+    
+    if (use_scroller) {
+      # Virtual scrolling icon
+      icon_symbol <- "⚡"
+      tooltip_text <- sprintf("Virtual Scrolling (%d rows)", row_count)
+      badge_color <- if (row_count < 200) "#1976d2" else "#e65100"  # Blue or orange
+    } else {
+      # Pagination icon
+      icon_symbol <- "📄"
+      tooltip_text <- sprintf("Pagination Mode (%d rows)", row_count)
+      badge_color <- "#6a1b9a"  # Purple
+    }
+    
+    output$render_mode_content <- renderUI({
+      tags$span(
+        style = sprintf("color: %s; font-size: 20px; cursor: help;", badge_color),
+        title = tooltip_text,
+        icon_symbol
+      )
+    })
+    
+    shinyjs::show("render_mode_badge")
+  }
+  
+  # ============================================================================
   # UPDATE ROW WARNING
   # ============================================================================
-  # Shows warning icon when tab has too many rows (>50)
-  # Large tabs can slow down the application due to DataTable rendering overhead
+  # Shows warning icon when tab has too many rows (>200)
+  # Large tabs can impact performance, especially with pagination mode (>500 rows)
   #
   # @param data Current tab's data.table
   # @return NULL (side effect: shows/hides warning icon)
@@ -5809,10 +6868,10 @@ server <- function(input, output, session) {
     }
     
     row_count <- nrow(data)
-    if (row_count > 50) {
-      rows_to_remove <- row_count - 50
+    if (row_count > 200) {
+      rows_to_remove <- row_count - 200
       tooltip_text <- sprintf(
-        "This tab has %d row(s), consider removing %d row(s). We recommend not adding more than 50 rows to a tab as this will slow down the program.",
+        "This tab has %d row(s), consider removing %d row(s). We recommend not adding more than 200 rows to a tab for optimal performance.",
         row_count,
         rows_to_remove
       )
@@ -5834,6 +6893,82 @@ server <- function(input, output, session) {
   }
   
   # ============================================================================
+  # ROW-LEVEL TABLE UPDATE (STEP 4 - Performance Optimization)
+  # ============================================================================
+  # Updates specific rows in the table without replacing the entire dataset
+  # This is significantly faster than replaceData() for single-row updates
+  # Use cases: cell edits, row validation updates, single-row deletions
+  #
+  # @param row_indices Integer vector of row indices to update (1-based)
+  # @param file Table name for context-aware processing
+  # @return NULL (side effect: sends custom message to update table rows)
+  
+  update_table_rows <- function(row_indices, file) {
+    if (!isTRUE(table_initialized()) || is.null(row_indices) || length(row_indices) == 0) {
+      return()
+    }
+    
+    # Get current active tab data
+    active_data <- get_active_tab_data()
+    if (is.null(active_data)) {
+      return()
+    }
+    
+    # Validate row indices
+    row_indices <- row_indices[row_indices > 0 & row_indices <= nrow(active_data)]
+    if (length(row_indices) == 0) {
+      return()
+    }
+    
+    # Extract only the rows that need updating
+    rows_to_update <- active_data[row_indices]
+    
+    # Process the rows (same logic as render_table but only for selected rows)
+    # Remove metadata columns
+    data_for_display <- copy(rows_to_update)
+    meta_cols <- names(data_for_display)[grepl("tab_(name|order)_meta", names(data_for_display))]
+    if (length(meta_cols) > 0) {
+      data_for_display[, (meta_cols) := NULL]
+    }
+    
+    # Add Index column (using actual row indices from full table)
+    data_for_display[, Index := row_indices]
+    
+    # Add Select checkboxes
+    data_for_display$Select <- paste0('<input type="checkbox" class="delete-rows" id="deleterows_', 
+                                       row_indices, '">')
+    
+    # Apply column renaming (same as render_table)
+    if(file == "elements") {
+      setnames(data_for_display, "castor_kolom", "Castor Name", skip_absent = TRUE)
+    }
+    
+    col_renames <- c(
+      "epic_tabel" = "Export File",
+      "epic_kolom" = "EPIC Column",
+      "castor_tabel" = "Main Output File",
+      "castor_kolom" = "Castor Metadata",
+      "vaste_waarde" = "Fixed Value",
+      "key" = "Key",
+      "repeating" = "Repeating",
+      "gerelateerde_mapping" = "Related Mapping"
+    )
+    
+    for (old_name in names(col_renames)) {
+      if (old_name %in% names(data_for_display)) {
+        setnames(data_for_display, old_name, col_renames[[old_name]], skip_absent = TRUE)
+      }
+    }
+    
+    # Send row update message to JavaScript
+    # JavaScript will update only these specific rows in the DataTable
+    session$sendCustomMessage("updateTableRows", list(
+      rows = row_indices - 1,  # Convert to 0-based for JavaScript
+      data = as.list(data_for_display)
+    ))
+  }
+  
+  # ============================================================================
   # TABLE RENDERING: Main function for displaying interactive DataTable
   # ============================================================================
   # This is the core rendering function for the application's main table.
@@ -5845,6 +6980,18 @@ server <- function(input, output, session) {
   #   - Cell coloring based on validation state (red=invalid, blue=manual)
   #   - Delete checkboxes for row selection
   #   - Full rendering (initial load) vs proxy updates (data changes)
+  #
+  # PERFORMANCE OPTIMIZATION (Step 4):
+  # Three rendering strategies for different use cases:
+  #   1. "full" mode: Complete table rebuild (slowest, ~1-2s for 100 rows)
+  #      Use when: Table changed, columns changed, or first render
+  #   
+  #   2. "proxy" mode: Replace all data via replaceData (medium, ~200-500ms)
+  #      Use when: Multiple rows changed, tab switched, large data changes
+  #   
+  #   3. update_table_rows(): Update specific rows only (fastest, ~50-100ms)
+  #      Use when: Single cell edit, validation update for one row
+  #      NOTE: Not yet implemented in all observers, available for future optimization
   #
   # @param data data.table to display
   # @param file Table name ("elements", "waarde_checkboxes", "waarde_radiobuttons", etc.)
@@ -5862,6 +7009,21 @@ server <- function(input, output, session) {
       }
     } else if (identical(mode, "proxy") && !isTRUE(table_initialized())) {
       mode <- "full"  # Can't use proxy if table not initialized
+    }
+    
+    # Detect duplicates for elements table and update reactive value
+    # Only check for duplicates in 'elements' table - duplicates are normal in radiobuttons/checkboxes
+    if (file == "elements" && !is.null(data)) {
+      dupes <- detect_duplicate_elements(data)
+      duplicateElements(dupes)
+    } else {
+      # Clear duplicates for other tables
+      duplicateElements(list(
+        duplicate_rows_element = integer(0),
+        duplicate_values_element = character(0),
+        duplicate_rows_castor = integer(0),
+        duplicate_values_castor = character(0)
+      ))
     }
     
     # Check if input data has tab metadata (before we remove it)
@@ -6134,7 +7296,21 @@ server <- function(input, output, session) {
 
           # Compute CSS class based on whether value exists in full option list
           key <- paste0(valueNumber, "_", column)
-          if (!(value %in% optionsList)) {
+          
+          # Check if this is a duplicate (Element or Castor Name column)
+          is_duplicate <- FALSE
+          if (file == "elements") {
+            dupes <- duplicateElements()
+            if (column == "Element") {
+              is_duplicate <- valueNumber %in% dupes$duplicate_rows_element
+            } else if (column == "castor_kolom") {
+              is_duplicate <- valueNumber %in% dupes$duplicate_rows_castor
+            }
+          }
+          
+          if (is_duplicate) {
+            css_class <- "orange-cell"  # Duplicate element or Castor Name
+          } else if (!(value %in% optionsList)) {
             # Value not in standard options
             css_class <- if (!is.null(manualValues$vals[[key]]) && manualValues$vals[[key]] == TRUE) {
               "blue-cell"  # Manually added value
@@ -6147,35 +7323,28 @@ server <- function(input, output, session) {
             css_class <- ""  # Valid value
           }
           
-          # Encode options as JSON (used by client JS on demand)
+          # Encode options as JSON for lazy loading
           options_json <- jsonlite::toJSON(optionsListFiltered, auto_unbox = TRUE)
-
-          # Build full dropdown: include all options and mark the current value as selected
-          options_html <- paste(
-            sapply(optionsListFiltered, function(opt) {
-              # Handle NA values in comparison
-              is_selected <- !is.na(opt) && !is.na(value) && opt == value
-              if(is_selected) {
-                paste0('<option value="', opt, '" selected>', opt, '</option>')
-              } else {
-                paste0('<option value="', opt, '">', opt, '</option>')
-              }
-            }),
-            collapse = ""
-          )
-
-          # Add the special "Add value..." option (triggers manual input modal)
-          options_html <- paste0(options_html, '<option value="__ADD__">Add value...</option>')
-
-          # Build complete select element with data attributes for JavaScript
+          
+          # Escape JSON for HTML attribute (prevent XSS and parsing issues)
+          options_json_escaped <- gsub("'", "&#39;", options_json, fixed = TRUE)
+          options_json_escaped <- gsub('"', "&quot;", options_json_escaped, fixed = TRUE)
+          
+          # Build lightweight placeholder div that will become dropdown on focus
+          # This dramatically reduces initial render time by deferring dropdown creation
+          # The actual <select> element is generated by JavaScript when user clicks the cell
           dropdown_html <- paste0(
-              '<select id="dropdown_', original_column, '_', rowN, 
-              '" data-row="', rowN, '" data-col="', original_column, 
-              '" data-options=\'', options_json, '\' data-cssclass="', css_class, 
-              '" class="lazy-load" onchange="Shiny.setInputValue(\'dropdown_change\', {row: ', rowN, 
-              ', col: \'', original_column, '\', id: this.id, value: this.value});">',
-              options_html,
-              '</select>'
+              '<div class="lazy-dropdown ', css_class, '" ',
+              'id="dropdown_', original_column, '_', rowN, '" ',
+              'data-row="', rowN, '" ',
+              'data-col="', original_column, '" ',
+              'data-value="', htmltools::htmlEscape(value), '" ',
+              'data-options="', options_json_escaped, '" ',
+              'data-cssclass="', css_class, '" ',
+              'data-original-col="', original_column, '" ',
+              'tabindex="0">',
+              htmltools::htmlEscape(value),
+              '</div>'
           )
         }, simplify = FALSE)
       }
@@ -6189,7 +7358,85 @@ server <- function(input, output, session) {
     #   - "proxy": Just replace data in existing table (faster for updates)
     
     if (identical(mode, "full") || !isTRUE(table_initialized())) {
-      # Full render: Create new DataTable with all options
+      # ======================================================================
+      # STEP 5: INTELLIGENT PAGINATION STRATEGY
+      # ======================================================================
+      # Automatically choose optimal rendering strategy based on row count:
+      #   < 200 rows:   Virtual scrolling (Scroller) - best UX, smooth scrolling
+      #   200-500 rows: Virtual scrolling with performance warning
+      #   > 500 rows:   Traditional pagination - better performance for large datasets
+      
+      row_count <- nrow(display_data)
+      use_scroller <- row_count < 500  # Threshold for switching to pagination
+      
+      # Configure extensions and options based on row count
+      if (use_scroller) {
+        # Virtual scrolling configuration (< 500 rows)
+        extensions_list <- 'Scroller'
+        dt_options <- list(
+          deferRender = TRUE,        # Lazy render for performance
+          autoWidth = FALSE,
+          scroller = TRUE,           # Enable virtual scrolling
+          scrollY = 600,             # Fixed viewport height
+          scrollCollapse = TRUE,
+          paging = TRUE,             # Required by Scroller
+          pageLength = 50,           # Buffer size for Scroller
+          displayLength = 50,
+          searching = TRUE,
+          ordering = FALSE,
+          dom = 'rtip',              # Hide length menu and pagination controls
+          info = TRUE                # Show "Showing X of Y entries"
+        )
+      } else {
+        # Traditional pagination configuration (>= 500 rows)
+        extensions_list <- character(0)  # No extensions needed
+        dt_options <- list(
+          deferRender = FALSE,       # Full render (pagination handles performance)
+          autoWidth = FALSE,
+          scroller = FALSE,          # Disable virtual scrolling
+          scrollY = FALSE,           # No fixed height, use pagination
+          paging = TRUE,             # Enable traditional pagination
+          pageLength = 25,           # Show 25 rows per page
+          lengthMenu = list(c(10, 25, 50, 100, -1), c('10', '25', '50', '100', 'All')),
+          searching = TRUE,
+          ordering = FALSE,
+          dom = 'lrtip',             # Show length menu + pagination
+          info = TRUE
+        )
+      }
+      
+      # ======================================================================
+      # STEP 6: ROW CALLBACK FOR DUPLICATE HIGHLIGHTING
+      # ======================================================================
+      # Add rowCallback to apply .duplicate-row class to rows with duplicates
+      # This provides visual feedback for data quality issues
+      
+      rowCallback_js <- NULL
+      if (file == "elements") {
+        dupes <- duplicateElements()
+        duplicate_row_indices <- unique(c(dupes$duplicate_rows_element, dupes$duplicate_rows_castor))
+        
+        if (length(duplicate_row_indices) > 0) {
+          # JavaScript row indices are 0-based, R indices are 1-based
+          duplicate_indices_js <- duplicate_row_indices - 1
+          
+          rowCallback_js <- JS(
+            sprintf(
+              "function(row, data, index) {
+                var duplicateIndices = [%s];
+                if (duplicateIndices.includes(index)) {
+                  $(row).addClass('duplicate-row');
+                } else {
+                  $(row).removeClass('duplicate-row');
+                }
+              }",
+              paste(duplicate_indices_js, collapse = ",")
+            )
+          )
+        }
+      }
+      
+      # Full render: Create new DataTable with adaptive configuration
       output$table <- renderDT({
         datatable(
           display_data,
@@ -6206,19 +7453,15 @@ server <- function(input, output, session) {
               ncol(display_data)  # Disable Select column
             ))
           )),
-          selection = "none",  # Disable row selection (we use checkboxes)
-          options = list(
-            deferRender = TRUE,      # Lazy render for performance
-            autoWidth = FALSE,       # Use explicit column widths
-            scroller = TRUE,         # Virtual scrolling for large datasets
-            paging = FALSE,          # Show all rows (with virtual scrolling)
-            searching = TRUE,        # Enable search box
-            ordering = FALSE,        # Disable column sorting
-            dom = 'lrtip',          # Layout: length, processing, table, info, pagination
+          selection = "none",  # Disable row selection (we use custom checkboxes)
+          extensions = extensions_list,  # Adaptive: Scroller or none
+          options = c(dt_options, list(  # Merge adaptive options with callbacks
+            rowCallback = rowCallback_js,  # Apply duplicate row highlighting
             initComplete = JS(
               # Initialize Select2 on all dropdowns after table loads
               "function(settings, json) {",
-              "  this.api().columns.adjust();",
+              "  var initStart = performance.now();",
+              "  // columns.adjust() is handled by resizeTableToWindow in hideLoadingScreen",
               "  var selects = $('#table table select.lazy-load');",
               "  selects.each(function(){",
               "     var $sel = $(this);",
@@ -6229,6 +7472,11 @@ server <- function(input, output, session) {
               "         });",
               "     }",
               "  });",
+              "  var initDuration = performance.now() - initStart;",
+              "  var rowCount = this.api().rows().count();",
+              "  if (window.performanceMonitor) {",
+              "    performanceMonitor.trackTableRender('main_table', rowCount, initDuration);",
+              "  }",
               "}"
             ),
             drawCallback = JS(
@@ -6237,9 +7485,28 @@ server <- function(input, output, session) {
               "  $(document).trigger('initializeSelect2');",
               "}"
             )
-          )
+          ))
         )
       })
+      
+      # Show notification about rendering mode for large datasets
+      if (row_count >= 200 && row_count < 500) {
+        showNotification(
+          sprintf("Large dataset detected (%d rows). Using virtual scrolling. Performance may vary.", row_count),
+          type = "message",
+          duration = 3
+        )
+      } else if (row_count >= 500) {
+        showNotification(
+          sprintf("Very large dataset (%d rows). Switched to pagination mode for optimal performance.", row_count),
+          type = "message",
+          duration = 5
+        )
+      }
+      
+      # Update render mode badge
+      update_render_mode_badge(row_count, use_scroller)
+      
       table_initialized(TRUE)
     } else {
       # Proxy mode: Just replace data in existing table
@@ -6250,6 +7517,29 @@ server <- function(input, output, session) {
         clearSelection = "none",
         rownames = FALSE
       )
+      
+      # Update duplicate row highlighting after proxy update
+      if (file == "elements") {
+        dupes <- duplicateElements()
+        duplicate_row_indices <- unique(c(dupes$duplicate_rows_element, dupes$duplicate_rows_castor))
+        
+        # Convert to 0-based indices for JavaScript
+        duplicate_indices_js <- if (length(duplicate_row_indices) > 0) {
+          duplicate_row_indices - 1
+        } else {
+          integer(0)
+        }
+        
+        # Send custom message to update duplicate classes
+        session$sendCustomMessage("updateDuplicateRows", list(
+          duplicateIndices = duplicate_indices_js
+        ))
+      }
+      
+      # Update render mode badge in proxy mode too (for tab switches)
+      row_count <- nrow(display_data)
+      use_scroller <- row_count < 500
+      update_render_mode_badge(row_count, use_scroller)
     }
     current_table_name(file)
     
@@ -6293,6 +7583,12 @@ server <- function(input, output, session) {
         if (length(active_idx) > 0) {
           tabState$tabs[[active_idx]]$data <- new_data
         }
+      }
+      
+      # Detect duplicates if this is the elements table
+      if (input$file == "elements") {
+        dupes <- detect_duplicate_elements(new_data)
+        duplicateElements(dupes)
       }
       
       render_table(new_data, input$file)
@@ -6876,6 +8172,12 @@ server <- function(input, output, session) {
     # 9. RENDER UPDATED TABLE
     render_table(target_data, input$file)
     
+    # 9b. DETECT DUPLICATES (for elements table)
+    if (input$file == "elements") {
+      dupes <- detect_duplicate_elements(target_data)
+      duplicateElements(dupes)
+    }
+    
     # 10. CONSOLIDATE ELEMENTS DATA TO MAPPINGDATA (so checkbox/radiobutton tabs load correctly)
     if (input$file == "elements") {
       # Consolidate all elements tabs to mappingData
@@ -7140,6 +8442,12 @@ server <- function(input, output, session) {
     # 7. RENDER UPDATED TABLE
     render_table(moved_data, input$file)
     
+    # 7b. DETECT DUPLICATES (for elements table)
+    if (input$file == "elements") {
+      dupes <- detect_duplicate_elements(moved_data)
+      duplicateElements(dupes)
+    }
+    
     # 8. SHOW SUCCESS NOTIFICATION
     n_selected <- position_calc$n_selected
     msg <- sprintf("%d row%s moved to position%s %s", 
@@ -7214,6 +8522,12 @@ server <- function(input, output, session) {
       }
     }
     
+    # Detect duplicates if this is the elements table
+    if (input$file == "elements") {
+      dupes <- detect_duplicate_elements(active_data)
+      duplicateElements(dupes)
+    }
+    
     removeModal()
     render_table(active_data, input$file)
   })
@@ -7242,6 +8556,12 @@ server <- function(input, output, session) {
       if (length(active_idx) > 0) {
         tabState$tabs[[active_idx]]$data <- active_data
       }
+    }
+    
+    # Detect duplicates if this is the elements table
+    if (input$file == "elements") {
+      dupes <- detect_duplicate_elements(active_data)
+      duplicateElements(dupes)
     }
     
     removeModal()
@@ -7355,7 +8675,67 @@ server <- function(input, output, session) {
         updateRadioMapping()
       }
       
-      session$sendCustomMessage("updateSelectedOption", list(id = info$id, new_value = info$value))
+      # Check for duplicate elements/castor names and update reactive value
+      if (input$file == "elements" && (colName == "Element" || colName == "castor_kolom")) {
+        dupes <- detect_duplicate_elements(new_data)
+        duplicateElements(dupes)
+        
+        # Re-render table to show orange highlighting
+        render_table(new_data, input$file, mode = "proxy")
+        
+        # Show warning notification if duplicates exist
+        has_element_dupes <- length(dupes$duplicate_values_element) > 0
+        has_castor_dupes <- length(dupes$duplicate_values_castor) > 0
+        
+        if (has_element_dupes || has_castor_dupes) {
+          # Build detailed duplicate information with row numbers
+          notification_parts <- c()
+          
+          if (has_element_dupes) {
+            # Group duplicates by value and show row numbers
+            element_details <- sapply(dupes$duplicate_values_element, function(val) {
+              rows <- dupes$duplicate_rows_element[new_data$Element[dupes$duplicate_rows_element] == val]
+              sprintf("<strong>%s</strong> (rows: %s)", val, paste(rows, collapse = ", "))
+            })
+            notification_parts <- c(
+              notification_parts,
+              sprintf("<strong>Duplicate Elements:</strong><br/>%s", 
+                      paste(element_details, collapse = "<br/>"))
+            )
+          }
+          
+          if (has_castor_dupes) {
+            # Group duplicates by value and show row numbers
+            castor_details <- sapply(dupes$duplicate_values_castor, function(val) {
+              rows <- dupes$duplicate_rows_castor[new_data$castor_kolom[dupes$duplicate_rows_castor] == val]
+              sprintf("<strong>%s</strong> (rows: %s)", val, paste(rows, collapse = ", "))
+            })
+            notification_parts <- c(
+              notification_parts,
+              sprintf("<strong>Duplicate Castor Names:</strong><br/>%s", 
+                      paste(castor_details, collapse = "<br/>"))
+            )
+          }
+          
+          duplicate_info <- paste(notification_parts, collapse = "<br/><br/>")
+          
+          # Show notification with detailed information
+          showNotification(
+            ui = HTML(sprintf(
+              "<strong style='color: #ff9800;'><i class='fa fa-exclamation-triangle'></i> Duplicate Values Detected</strong><br/>
+              Duplicates are highlighted in <span style='background-color: #ff9800; color: white; padding: 2px 4px; border-radius: 3px;'>ORANGE</span>.<br/>
+              <small style='margin-top: 8px; display: block;'>%s</small>",
+              duplicate_info
+            )),
+            duration = 15,
+            closeButton = TRUE,
+            type = "warning"
+          )
+        }
+      } else {
+        # For non-duplicate-checked column changes, use proxy update to reflect changes
+        render_table(new_data, input$file, mode = "proxy")
+      }
     }
   })
   
@@ -7389,7 +8769,20 @@ server <- function(input, output, session) {
     }
     
     removeModal()
-    render_table(new_data, input$file)
+    
+    # Detect duplicates if this is the elements table and Element/castor_kolom was edited
+    if (input$file == "elements" && (currentEdit$col == "Element" || currentEdit$col == "castor_kolom")) {
+      dupes <- detect_duplicate_elements(new_data)
+      duplicateElements(dupes)
+    }
+    
+    # Send direct cell update to JavaScript (avoids full table re-render)
+    session$sendCustomMessage("updateCellValue", list(
+      row = currentEdit$row,
+      col = currentEdit$col,
+      value = input$new_value,
+      cssClass = "blue-cell"  # Manual values are marked blue
+    ))
   })
   
   observeEvent(input$modal_dbl_save, {
@@ -7424,10 +8817,99 @@ server <- function(input, output, session) {
     
     removeModal()
     render_table(new_data, input$file)
+    
+    # Detect duplicates if this is the elements table
+    if (input$file == "elements") {
+      dupes <- detect_duplicate_elements(new_data)
+      duplicateElements(dupes)
+    }
   })
   
   # Save: write exclusively to the database and then update the CSV files
   observeEvent(input$save, {
+    # Check for duplicates before saving (only for elements table)
+    if (input$file == "elements" && length(tabState$tabs) > 0) {
+      # Consolidate all tabs to check for duplicates across entire dataset
+      consolidated_data <- consolidate_tabs_with_metadata(tabState$tabs)
+      dupes <- detect_duplicate_elements(consolidated_data)
+      
+      has_element_dupes <- length(dupes$duplicate_values_element) > 0
+      has_castor_dupes <- length(dupes$duplicate_values_castor) > 0
+      
+      if (has_element_dupes || has_castor_dupes) {
+        # Build warning message with details
+        warning_parts <- list()
+        
+        if (has_element_dupes) {
+          element_list <- paste(dupes$duplicate_values_element, collapse = ", ")
+          warning_parts <- c(warning_parts, list(
+            tags$div(
+              style = "margin-bottom: 10px;",
+              tags$strong(
+                style = "color: #ff9800;",
+                sprintf("• %d duplicate Element value(s): ", length(dupes$duplicate_values_element))
+              ),
+              tags$br(),
+              tags$span(style = "margin-left: 15px; font-family: monospace;", element_list)
+            )
+          ))
+        }
+        
+        if (has_castor_dupes) {
+          castor_list <- paste(dupes$duplicate_values_castor, collapse = ", ")
+          warning_parts <- c(warning_parts, list(
+            tags$div(
+              style = "margin-bottom: 10px;",
+              tags$strong(
+                style = "color: #ff9800;",
+                sprintf("• %d duplicate Castor Name value(s): ", length(dupes$duplicate_values_castor))
+              ),
+              tags$br(),
+              tags$span(style = "margin-left: 15px; font-family: monospace;", castor_list)
+            )
+          ))
+        }
+        
+        # Show confirmation modal
+        showModalSafe(modalDialog(
+          title = tags$div(
+            style = "color: #ff9800;",
+            icon("exclamation-triangle", style = "margin-right: 8px;"),
+            "Save with Duplicates?"
+          ),
+          tags$div(
+            style = "padding: 10px 0;",
+            tags$p(
+              style = "font-weight: bold; margin-bottom: 15px;",
+              "The following duplicates were detected:"
+            ),
+            warning_parts,
+            tags$hr(),
+            tags$div(
+              style = "padding: 10px; background-color: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;",
+              tags$p(
+                style = "margin: 0; font-size: 14px;",
+                icon("info-circle", style = "margin-right: 5px;"),
+                "Duplicates may cause issues during data export. ",
+                "It is recommended to fix duplicates before saving."
+              )
+            )
+          ),
+          footer = tagList(
+            modalButton("Cancel"),
+            actionButton("confirm_save_with_duplicates", "Save Anyway", 
+                         class = "btn-warning",
+                         icon = icon("save"))
+          ),
+          size = "m",
+          easyClose = FALSE
+        ))
+        
+        # Exit early - wait for user confirmation
+        return(NULL)
+      }
+    }
+    
     # Consolidate all tabs back into mappingData before saving
     # For elements table, also update checkbox/radiobutton mappings
     if (input$file == "elements" && length(tabState$tabs) > 0) {
@@ -7478,524 +8960,1051 @@ server <- function(input, output, session) {
       "Database and CSV files have been saved successfully!"
     ))
   })
+  
+  # Confirm save with duplicates - executes save after user confirmation
+  observeEvent(input$confirm_save_with_duplicates, {
+    # Close confirmation modal
+    removeModal()
+    
+    # Consolidate all tabs back into mappingData before saving
+    # For elements table, also update checkbox/radiobutton mappings
+    if (input$file == "elements" && length(tabState$tabs) > 0) {
+      # Consolidate all tabs for elements
+      mappingData[[input$file]] <<- consolidate_tabs_with_metadata(tabState$tabs)
+      
+      # Run auto-fill to update radiobuttons/checkboxes based on new elements data
+      updateCheckboxMapping()
+      updateRadioMapping()
+    } else if (input$file %in% c("waarde_checkboxes", "waarde_radiobuttons") && length(tabState$tabs) > 0) {
+      # For checkboxes/radiobuttons: also consolidate their tabs to mappingData
+      # Otherwise manual edits will be lost on save!
+      mappingData[[input$file]] <<- consolidate_tabs_with_metadata(tabState$tabs)
+    }
+    
+    for (tableName in names(mappingData)) {
+      dt <- mappingData[[tableName]]
+      
+      # Remove empty rows for elements table
+      if (tableName == "elements") {
+        dt <- dt[!is.na(Element)]
+      }
+      
+      # Remove empty rows (rows where all data columns are NA or empty, excluding metadata)
+      data_cols <- setdiff(names(dt), c("tab_name_meta", "tab_order_meta"))
+      if (length(data_cols) > 0 && nrow(dt) > 0) {
+        # Determine which rows have at least one non-NA, non-empty value
+        keep_rows <- rep(FALSE, nrow(dt))
+        for (col in data_cols) {
+          col_vals <- dt[[col]]
+          keep_rows <- keep_rows | (!is.na(col_vals) & col_vals != "")
+        }
+        dt <- dt[keep_rows, ]
+      }
+      
+      dbWriteTable(con, tableName, dt, overwrite = TRUE)
+    }
 
-  # Select Epic input file
+    # Update the CSV files from the database (central paths)
+    database_to_csv(dataFolder = epc_path("mapping_dir"), dbPath = epc_path("mapping_db"))
+    
+    showModalSafe(modalDialog(
+      title = tags$div(
+        icon("check-circle", style = "color: #4CAF50; margin-right: 8px;"),
+        "Saved with Duplicates"
+      ),
+      tags$div(
+        tags$p("Database and CSV files have been saved successfully."),
+        tags$div(
+          style = "padding: 10px; background-color: #fff3e0; border-left: 4px solid #ff9800; border-radius: 4px; margin-top: 10px;",
+          tags$p(
+            style = "margin: 0; font-size: 14px;",
+            icon("exclamation-triangle", style = "margin-right: 5px; color: #ff9800;"),
+            "Note: Duplicate values are still present. Please review and fix them when possible."
+          )
+        )
+      ),
+      footer = modalButton("Close")
+    ))
+  })
+
+  # ===== IMPORT WIZARD MODAL =====
+  # Open the import wizard when user clicks "Manage input files"
+  
   observeEvent(input$select_epic_file, {
     showModalSafe(modalDialog(
-      title = "Manage Input Files",
+      title = "Data Import Wizard - Multi-Step Data Mapping",
       tagList(
-        h4("Select File Type:"),
-        selectInput(
-          "input_file_type",
-          NULL,
-          choices = c(
-            "Epic Export" = "epic_export",
-            "Biobank Data" = "biobank_data",
-            "Follow-up Data" = "follow_up"
+        tags$head(
+          tags$style(HTML("
+            .wizard-modal .modal-body {
+              max-height: calc(100vh - 250px);
+              overflow-y: auto;
+              padding: 20px;
+            }
+            .wizard-step {
+              background-color: #f8f9fa;
+              padding: 15px;
+              margin-bottom: 20px;
+              border-radius: 5px;
+              border-left: 4px solid #007bff;
+            }
+            .wizard-step h3 {
+              margin-top: 0;
+              color: #495057;
+              font-size: 1.2rem;
+            }
+            .step-complete {
+              border-left-color: #28a745;
+              background-color: #d4edda;
+            }
+            .step-active {
+              border-left-color: #007bff;
+            }
+            .confidence-high {
+              color: #28a745;
+              font-weight: bold;
+            }
+            .confidence-medium {
+              color: #ffc107;
+              font-weight: bold;
+            }
+            .confidence-low {
+              color: #fd7e14;
+              font-weight: bold;
+            }
+            .confidence-very-low {
+              color: #dc3545;
+              font-weight: bold;
+            }
+            /* Constrain mapping samples to stay within their cell */
+            .wizard-modal .mapping-sample {
+              word-wrap: break-word;
+              overflow-wrap: break-word;
+              white-space: normal;
+              max-width: 100%;
+              line-height: 1.3em;
+              max-height: calc(1.3em * 2);
+              overflow: hidden;
+              text-overflow: ellipsis;
+              display: -webkit-box;
+              -webkit-line-clamp: 2;
+              -webkit-box-orient: vertical;
+            }
+            .wizard-modal .mapping-sample-container {
+              max-width: 100%;
+              overflow: hidden;
+              display: block;
+              word-break: break-word;
+            }
+            /* Allow long dropdown items to wrap instead of widening */
+            .wizard-modal .selectize-input {
+              white-space: normal;
+              word-wrap: break-word;
+              overflow-wrap: break-word;
+              word-break: break-all;
+              min-height: 40px;
+              height: auto;
+              padding: 8px 10px;
+            }
+            .wizard-modal .selectize-input .item {
+              white-space: normal;
+              word-wrap: break-word;
+              overflow-wrap: break-word;
+              word-break: break-all;
+              line-height: 1.3;
+            }
+            .wizard-modal .mapping-row .selectize-control {
+              width: 100% !important;
+              max-width: 100% !important;
+              min-width: 0 !important;
+            }
+            .wizard-modal .selectize-dropdown {
+              width: 100% !important;
+              max-width: 100% !important;
+              white-space: normal;
+              word-wrap: break-word;
+              overflow-wrap: break-word;
+              word-break: break-all;
+            }
+            .wizard-modal .selectize-dropdown .option {
+              white-space: normal;
+              word-wrap: break-word;
+              overflow-wrap: break-word;
+              word-break: break-all;
+              line-height: 1.3;
+              padding: 8px 10px;
+            }
+          "))
+        ),
+        # Step 1: File Selection
+        div(class = "wizard-step",
+          h3("Step 1: Select or Upload File"),
+          fluidRow(
+            column(6,
+              selectInput("wizard_import_type", "Data Type:", 
+                choices = c("EPIC Export" = "epic_baseline", "Biobank" = "biobank_data", "Follow-up" = "follow_up"),
+                width = "100%")
+            ),
+            column(6,
+              fileInput("wizard_file_upload", "Upload File:",
+                accept = c(".csv", ".xlsx"),
+                buttonLabel = "Browse...",
+                placeholder = "No file selected",
+                width = "100%")
+            )
           ),
-          width = "100%"
+          uiOutput("wizard_sheet_selector"),
+          uiOutput("wizard_file_info_ui")
         ),
-        hr(),
-        h4("Available Files:"),
-        uiOutput("available_files_ui"),
-        hr(),
-        h4("Upload New File:"),
-        fileInput(
-          "upload_input_file",
-          NULL,
-          accept = c(".csv", ".xlsx"),
-          buttonLabel = "Browse...",
-          placeholder = "No file selected"
-        ),
-        uiOutput("upload_validation_ui")  # Add validation UI here
+        
+        # Step 2: Detection & Mapping (Dynamic)
+        uiOutput("wizard_detection_ui"),
+        uiOutput("wizard_mapping_ui"),
+        
+        # Step 3: Preview & Export
+        uiOutput("wizard_preview_ui")
       ),
       footer = tagList(
         modalButton("Close"),
-        actionButton("confirm_file_selection", "Select & Close", class = "btn btn-primary",
-                     title = "Upload new file (if selected) and/or select file from list")
+        actionButton("wizard_process_file", "Start Wizard", class = "btn btn-primary")
       ),
       size = "l",
-      easyClose = FALSE
+      easyClose = FALSE,
+      class = "wizard-modal"
     ))
   })
   
-  # Render available files based on selected type
-  output$available_files_ui <- renderUI({
-    req(input$input_file_type)
+  # ===== WIZARD REACTIVE VALUES =====
+  wizard_rv <- reactiveValues(
+    file_path = NULL,
+    file_name = NULL,
+    detection_result = NULL,
+    mapping_df = NULL,
+    selected_sheet = NULL,
+    selected_sheets = NULL,
+    available_sheets = NULL,
+    template_refresh = 0,
+    show_preview = FALSE,
+    export_result = NULL
+  )
+  
+  # ===== WIZARD: FILE INFO =====
+  output$wizard_file_info_ui <- renderUI({
+    req(input$wizard_file_upload)
     
-    # Get directory path based on type
-    dir_path <- switch(input$input_file_type,
-      "epic_export" = epc_path("epic_input_data_dir"),
-      "biobank_data" = epc_path("biobank_input_data_dir"),
-      "follow_up" = file.path("input_data", "follow_up"),
-      epc_path("epic_input_data_dir")
-    )
-    
-    if (!dir.exists(dir_path)) {
-      return(tags$div(
-        style = "padding: 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;",
-        icon("exclamation-triangle"), " Directory not found: ", dir_path
-      ))
+    file_info <- input$wizard_file_upload
+    wizard_rv$file_path <- file_info$datapath
+    wizard_rv$file_name <- file_info$name
+
+    # Capture Excel sheets for optional selection
+    ext <- tolower(tools::file_ext(wizard_rv$file_path))
+    if (ext %in% c("xlsx", "xls")) {
+      sheets <- tryCatch({
+        readxl::excel_sheets(wizard_rv$file_path)
+      }, error = function(e) NULL)
+      wizard_rv$available_sheets <- sheets
+      if (!is.null(sheets) && length(sheets) > 0) {
+        wizard_rv$selected_sheet <- sheets[1]
+        wizard_rv$selected_sheets <- c(sheets[1])
+      } else {
+        wizard_rv$selected_sheet <- NULL
+        wizard_rv$selected_sheets <- NULL
+      }
+    } else {
+      wizard_rv$available_sheets <- NULL
+      wizard_rv$selected_sheet <- NULL
+      wizard_rv$selected_sheets <- NULL
     }
-    
-    files <- list.files(dir_path, pattern = "\\.(csv|xlsx)$", full.names = FALSE, ignore.case = TRUE)
-    
-    if (length(files) == 0) {
-      return(tags$div(
-        style = "padding: 10px; background: #e7f3ff; border: 1px solid #0066cc; border-radius: 4px;",
-        icon("info-circle"), " No files found in this directory"
-      ))
-    }
-    
-    # Create a list of files with select buttons
-    file_items <- lapply(files, function(file) {
-      tags$div(
-        style = "display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee;",
-        tags$div(
-          style = "flex-grow: 1;",
-          icon("file-alt"), 
-          tags$span(style = "margin-left: 8px;", file)
-        ),
-        tags$div(
-          style = "display: flex; gap: 5px;",
-          actionButton(
-            paste0("select_file_", gsub("[^A-Za-z0-9]", "_", file)),
-            "Select",
-            class = "btn btn-sm btn-primary",
-            onclick = sprintf("Shiny.setInputValue('file_to_select', '%s', {priority: 'event'}); Shiny.setInputValue('file_type_context', '%s', {priority: 'event'});", file, input$input_file_type)
-          ),
-          actionButton(
-            paste0("delete_file_", gsub("[^A-Za-z0-9]", "_", file)),
-            icon("trash"),
-            class = "btn btn-sm btn-danger",
-            onclick = sprintf("Shiny.setInputValue('file_to_delete', '%s', {priority: 'event'}); Shiny.setInputValue('file_type_context', '%s', {priority: 'event'});", file, input$input_file_type),
-            title = "Delete file"
-          )
-        )
-      )
-    })
     
     tags$div(
-      style = "max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;",
-      file_items
+      style = "margin-top: 10px; padding: 10px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;",
+      p(icon("check-circle"), " File selected: ", tags$strong(file_info$name),
+        style = "color: #155724; margin: 0;"),
+      p(sprintf("Size: %.1f KB", file_info$size / 1024),
+        style = "color: #155724; margin: 3px 0; font-size: 0.9em;")
     )
   })
-  
-  # Store pending upload info
-  pending_upload_info <- reactiveVal(NULL)
-  
-  # Handle file upload with validation - show inline feedback
-  observeEvent(input$upload_input_file, {
-    req(input$upload_input_file, input$input_file_type)
-    
-    uploaded <- input$upload_input_file
-    
-    # Show validation in progress
-    output$upload_validation_ui <- renderUI({
-      div(
-        style = "margin-top: 10px; padding: 10px; background: #e7f3ff; border: 1px solid #0066cc; border-radius: 4px;",
-        icon("spinner", class = "fa-spin"), " Validating file..."
+
+  # Excel sheet selector (supports multi-sheet Excel imports)
+  output$wizard_sheet_selector <- renderUI({
+    req(wizard_rv$file_path)
+    ext <- tolower(tools::file_ext(wizard_rv$file_path))
+    sheets <- wizard_rv$available_sheets
+    if (!(ext %in% c("xlsx", "xls"))) return(NULL)
+    if (is.null(sheets) || length(sheets) <= 1) return(NULL)
+
+    div(
+      style = "margin-top: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9;",
+      tags$label(
+        style = "font-weight: bold; margin-bottom: 10px; display: block;",
+        "Select Excel Sheets (multiple allowed):"
+      ),
+      checkboxGroupInput(
+        "wizard_excel_sheets",
+        label = NULL,
+        choices = setNames(sheets, sheets),
+        selected = if (is.null(wizard_rv$selected_sheets)) sheets[1] else wizard_rv$selected_sheets
+      ),
+      tags$small(
+        class = "text-muted",
+        "Tip: Select multiple sheets to combine columns from different tabs"
       )
-    })
-    
-    target_dir <- switch(input$input_file_type,
-      "epic_export" = epc_path("epic_input_data_dir"),
-      "biobank_data" = epc_path("biobank_input_data_dir"),
-      "follow_up" = file.path("input_data", "follow_up"),
-      epc_path("epic_input_data_dir")
     )
+  })
+
+  observeEvent(input$wizard_excel_sheets, {
+    if (is.null(input$wizard_excel_sheets) || length(input$wizard_excel_sheets) == 0) return()
+    wizard_rv$selected_sheets <- input$wizard_excel_sheets
+    wizard_rv$selected_sheet <- input$wizard_excel_sheets[1]
+  }, ignoreInit = TRUE)
+  
+  # ===== WIZARD: PROCESS FILE (DETECTION) =====
+  observeEvent(input$wizard_process_file, {
+    req(wizard_rv$file_path)
     
-    # Create directory if it doesn't exist
-    if (!dir.exists(target_dir)) {
-      dir.create(target_dir, recursive = TRUE)
-    }
+    shinyjs::disable("wizard_process_file")
+    showNotification("Analyzing file structure...", type = "message", duration = NULL, id = "wizard_analyzing")
     
-    target_path <- file.path(target_dir, uploaded$name)
-    
-    # Check if file already exists
-    if (file.exists(target_path)) {
-      output$upload_validation_ui <- renderUI({
-        div(
-          style = "margin-top: 10px; padding: 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;",
-          p(icon("exclamation-triangle"), " File already exists", style = "color: #856404; font-weight: bold; margin: 0;"),
-          p(sprintf("A file named '%s' already exists in this directory.", uploaded$name),
-            style = "margin: 5px 0 0 0; color: #856404;")
-        )
-      })
-      return()
-    }
-    
-    # Validate file columns before uploading
     tryCatch({
-      file_ext <- tolower(tools::file_ext(uploaded$name))
-      
-      # Read the file to check columns
-      test_data <- NULL
-      if (file_ext == "csv") {
-        test_data <- readr::read_csv2(uploaded$datapath, n_max = 1, col_types = cols(), 
-                                      show_col_types = FALSE, locale = locale(decimal_mark = ",", grouping_mark = "."))
-      } else if (file_ext == "xlsx") {
-        test_data <- readxl::read_excel(uploaded$datapath, n_max = 1)
-      } else {
-        output$upload_validation_ui <- renderUI({
-          div(
-            style = "margin-top: 10px; padding: 10px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;",
-            p(icon("times-circle"), " Invalid file type", style = "color: #721c24; font-weight: bold; margin: 0;"),
-            p("Only .csv and .xlsx files are supported.", style = "margin: 5px 0 0 0; color: #721c24;")
-          )
-        })
-        return()
-      }
-      
-      # Determine expected columns based on file type
-      expected_cols <- NULL
-      epic_tabel <- NULL
-      
-      if (input$input_file_type == "epic_export") {
-        epic_tabel <- "EpicExport"
-      } else if (input$input_file_type == "biobank_data") {
-        # Check filename to determine if it's biobank_data or MDNS
-        if (grepl("biobank", uploaded$name, ignore.case = TRUE)) {
-          epic_tabel <- "biobank_data"
-        } else if (grepl("MDNS", uploaded$name, ignore.case = TRUE)) {
-          epic_tabel <- "MDNS"
+      det <- detect_file_structure(
+        wizard_rv$file_path,
+        sheet = if (!is.null(wizard_rv$selected_sheets) && length(wizard_rv$selected_sheets) == 1) wizard_rv$selected_sheets[1] else wizard_rv$selected_sheet,
+        sheets = if (!is.null(wizard_rv$selected_sheets) && length(wizard_rv$selected_sheets) > 1) wizard_rv$selected_sheets else NULL,
+        import_configs = IMPORT_CONFIGS
+      )
+
+      # Annotate human-friendly name based on matched type
+      if (!is.null(det$structure$matched_type)) {
+        mt <- det$structure$matched_type
+        det$structure$matched_name <- if (!is.null(IMPORT_CONFIGS[[mt]]$name)) {
+          IMPORT_CONFIGS[[mt]]$name
         } else {
-          epic_tabel <- "biobank_data"  # Default to biobank_data
-        }
-      } else if (input$input_file_type == "follow_up") {
-        epic_tabel <- "FollowUp"
-      }
-      
-      # Query expected columns from variabelen table
-      if (!is.null(epic_tabel)) {
-        variabelen_query <- sprintf(
-          "SELECT DISTINCT epic_kolom FROM variabelen WHERE epic_tabel = '%s' AND epic_kolom != ''",
-          epic_tabel
-        )
-        variabelen_result <- tryCatch(
-          dbGetQuery(con, variabelen_query),
-          error = function(e) NULL
-        )
-        
-        if (!is.null(variabelen_result) && nrow(variabelen_result) > 0) {
-          expected_cols <- variabelen_result$epic_kolom
+          mt
         }
       }
-      
-      # Validate columns if we have expected columns
-      if (!is.null(expected_cols) && length(expected_cols) > 0) {
-        actual_cols <- colnames(test_data)
-        missing_cols <- setdiff(expected_cols, actual_cols)
-        
-        if (length(missing_cols) > 0) {
-          # Validation failed - show inline warning
-          output$upload_validation_ui <- renderUI({
+
+      wizard_rv$detection_result <- det
+      removeNotification("wizard_analyzing")
+      showNotification("File analysis complete!", type = "message", duration = 2)
+    }, error = function(e) {
+      removeNotification("wizard_analyzing")
+      showNotification(sprintf("Error: %s", e$message), type = "error", duration = 5)
+      shinyjs::enable("wizard_process_file")
+    })
+  })
+  
+  # ===== WIZARD: DETECTION DISPLAY =====
+  output$wizard_detection_ui <- renderUI({
+    req(wizard_rv$detection_result)
+    
+    result <- wizard_rv$detection_result
+    confidence_level <- result$confidence$level
+    confidence_class <- paste0("confidence-", gsub("_", "-", confidence_level))
+    import_type_choices <- setNames(
+      names(IMPORT_CONFIGS),
+      sapply(IMPORT_CONFIGS, function(x) x$name)
+    )
+    detected_display_name <- if (!is.null(result$structure$matched_name)) {
+      result$structure$matched_name
+    } else if (!is.null(result$structure$matched_type)) {
+      if (!is.null(IMPORT_CONFIGS[[result$structure$matched_type]]$name)) {
+        IMPORT_CONFIGS[[result$structure$matched_type]]$name
+      } else {
+        result$structure$matched_type
+      }
+    } else {
+      "Onbekend"
+    }
+    
+    div(class = "wizard-step step-complete",
+      h3("Step 2: File Detection"),
+      fluidRow(
+        column(6,
+          tags$strong("Detected Type: "),
+          tags$br(),
+          tags$span(detected_display_name, style = "font-size: 1.1em;")
+        ),
+        column(6,
+          tags$strong("Confidence: "),
+          tags$br(),
+          tags$span(class = confidence_class, 
+            sprintf("%s (%d%%)", toupper(confidence_level), result$confidence$score))
+        )
+      ),
+      hr(),
+      p(tags$strong("Columns Detected: "), length(result$structure$col_names)),
+      p(tags$strong("Rows Preview: "), result$structure$row_count),
+      tags$div(
+        style = "max-height: 150px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 0.85em;",
+        tags$ul(
+          lapply(head(result$structure$col_names, 20), function(col) {
+            tags$li(code(col))
+          }),
+          if (length(result$structure$col_names) > 20) {
+            tags$li(sprintf("... and %d more", length(result$structure$col_names) - 20))
+          }
+        )
+      ),
+      div(
+        style = "margin-top: 15px; padding: 10px; background-color: #fff3cd; border-radius: 5px;",
+        fluidRow(
+          column(8,
+            selectInput(
+              "wizard_override_import_type",
+              label = tags$span(icon("edit"), " Override Import Type:"),
+              choices = import_type_choices,
+              selected = result$structure$matched_type,
+              width = "100%"
+            )
+          ),
+          column(4,
             div(
-              style = "margin-top: 10px; padding: 10px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;",
-              p(icon("exclamation-triangle"), " Column validation failed", 
-                style = "color: #721c24; font-weight: bold; margin: 0;"),
-              p(sprintf("The file is missing %d required column(s). You can still upload it using 'Select & Close'.", 
-                length(missing_cols)),
-                style = "margin: 5px 0; color: #721c24;"),
-              tags$details(
-                style = "margin-top: 8px;",
-                tags$summary(
-                  sprintf("Show missing columns (%d)", length(missing_cols)), 
-                  style = "cursor: pointer; color: #721c24; font-weight: bold;"
-                ),
-                tags$div(
-                  style = "margin-top: 8px; max-height: 150px; overflow-y: auto; background: #fff; padding: 8px; border-radius: 3px;",
-                  tags$ul(
-                    style = "margin: 0; padding-left: 20px;",
-                    lapply(head(missing_cols, 30), function(col) tags$li(code(col)))
-                  ),
-                  if (length(missing_cols) > 30) {
-                    tags$p(sprintf("... and %d more", length(missing_cols) - 30), 
-                           style = "color: #721c24; margin: 5px 0 0 0;")
-                  }
-                )
+              style = "margin-top: 25px;",
+              actionButton(
+                "wizard_apply_override",
+                "Apply Override",
+                class = "btn-warning",
+                icon = icon("check")
               )
             )
-          })
-          
-          # Store upload info for later upload via Select & Close
-          pending_upload_info(list(
-            datapath = uploaded$datapath,
-            target_path = target_path,
-            name = uploaded$name,
-            type = input$input_file_type,
-            has_warnings = TRUE
-          ))
-          
-          return()
-        }
-      }
-      
-      # Validation passed - show success
-      output$upload_validation_ui <- renderUI({
-        div(
-          style = "margin-top: 10px; padding: 10px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;",
-          p(icon("check-circle"), " File is valid and ready to upload", 
-            style = "color: #155724; font-weight: bold; margin: 0;"),
-          p(sprintf("File: %s - Click 'Select & Close' to upload.", uploaded$name), 
-            style = "margin: 5px 0 0 0; color: #155724; font-size: 0.9em;")
+          )
+        ),
+        p(
+          style = "margin: 5px 0 0 0; font-size: 0.875rem; color: #856404;",
+          icon("info-circle"),
+          " Gebruik deze optie wanneer de automatische detectie niet klopt of als je een ander importtype wilt afdwingen."
         )
-      })
-      
-      # Store upload info for upload via Select & Close
-      pending_upload_info(list(
-        datapath = uploaded$datapath,
-        target_path = target_path,
-        name = uploaded$name,
-        type = input$input_file_type,
-        has_warnings = FALSE
-      ))
-      
-    }, error = function(e) {
-      output$upload_validation_ui <- renderUI({
-        div(
-          style = "margin-top: 10px; padding: 10px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;",
-          p(icon("times-circle"), " Validation error", style = "color: #721c24; font-weight: bold; margin: 0;"),
-          p(sprintf("Error: %s", e$message), style = "margin: 5px 0 0 0; color: #721c24;")
-        )
-      })
-    })
-  })
-  
-  # Store selected Epic file and its type (persistent)
-  selected_epic_file <- reactiveVal(NULL)
-  selected_file_type <- reactiveVal(NULL)
-  
-  # Temporary selection (before confirmation)
-  temp_selected_file <- reactiveVal(NULL)
-  temp_selected_type <- reactiveVal(NULL)
-  
-  # Handle file selection (temporary, not confirmed yet)
-  observeEvent(input$file_to_select, {
-    req(input$file_to_select, input$file_type_context)
-    
-    # Store temporarily
-    temp_selected_file(input$file_to_select)
-    temp_selected_type(input$file_type_context)
-    
-    # Visual feedback that file is selected (highlight in UI would go here if needed)
-    # For now just store it
-  })
-  
-  # Confirm file selection and close modal (also handles file upload if present)
-  observeEvent(input$confirm_file_selection, {
-    upload_info <- pending_upload_info()
-    
-    # Step 1: Handle file upload if there's a pending upload
-    if (!is.null(upload_info)) {
-      tryCatch({
-        # Perform the upload
-        file.copy(upload_info$datapath, upload_info$target_path, overwrite = FALSE)
-        
-        notification_type <- if (isTRUE(upload_info$has_warnings)) "warning" else "message"
-        notification_icon <- if (isTRUE(upload_info$has_warnings)) "exclamation-triangle" else "check-circle"
-        
-        showNotification(
-          ui = tagList(
-            icon(notification_icon),
-            sprintf(" File '%s' uploaded%s", 
-                    upload_info$name,
-                    if (isTRUE(upload_info$has_warnings)) " with validation warnings" else " successfully")
-          ),
-          type = notification_type,
-          duration = 5
-        )
-        
-        # Auto-select the uploaded file
-        selected_epic_file(upload_info$name)
-        selected_file_type(upload_info$type)
-        
-        # Reload option lists if an epic_export file was uploaded
-        # This ensures dropdown options reflect the new data
-        if (upload_info$type == "epic_export") {
-          tryCatch({
-            options(epic2castor.force_option_reload = TRUE)
-            local_env <- new.env(parent = globalenv())
-            sys.source(file.path(epc_path("scripts_dir"), "option_lists2.R"), envir = local_env)
-            option_data <<- local_env$option_data
-            checkBoxesValues <<- local_env$checkBoxesValues
-            radioButtonOptionValues <<- local_env$radioButtonOptionValues
-            checkboxes <<- local_env$checkboxes
-            radiobuttons <<- local_env$radiobuttons
-            metaRadioButtons <<- local_env$metaRadioButtons
-            metaVariables <<- local_env$metaVariables
-            
-            # Re-render current table to update existing dropdowns with new options
-            if (!is.null(input$file) && is_selectable_table(input$file)) {
-              active_data <- get_active_tab_data()
-              if (!is.null(active_data) && nrow(active_data) > 0) {
-                render_table(active_data, input$file, mode = "full")
-              }
-            }
-          }, error = function(e) {
-            cat(sprintf("[FileUpload] Warning: Failed to reload option lists: %s\n", conditionMessage(e)))
-          })
-        }
-        
-        # Clear pending upload and temporary selection
-        pending_upload_info(NULL)
-        temp_selected_file(NULL)
-        temp_selected_type(NULL)
-        
-        removeModalSafe()
-        return()
-        
-      }, error = function(e) {
-        showNotification(
-          sprintf("Error uploading file: %s", e$message),
-          type = "error",
-          duration = 8
-        )
-        return()
-      })
-    }
-    
-    # Step 2: If no upload, check if a file from the list was selected
-    if (is.null(temp_selected_file())) {
-      showNotification(
-        "Please select a file from the list or upload a new file.",
-        type = "warning",
-        duration = 4
       )
+    )
+  })
+
+  observeEvent(input$wizard_apply_override, {
+    req(wizard_rv$detection_result, input$wizard_override_import_type)
+
+    current_result <- wizard_rv$detection_result
+    new_type <- input$wizard_override_import_type
+    old_type <- current_result$structure$matched_type
+
+    if (identical(new_type, old_type)) {
+      showNotification("Import type is al ingesteld op deze waarde", type = "warning", duration = 4)
       return()
     }
-    
-    # Confirm the selection from the list
-    selected_epic_file(temp_selected_file())
-    selected_file_type(temp_selected_type())
-    
-    # Clear temporary selection
-    temp_selected_file(NULL)
-    temp_selected_type(NULL)
-    
-    removeModalSafe()
-    
-    showNotification(
-      ui = tagList(
-        icon("check-circle"),
-        sprintf(" Selected: %s (%s)", selected_epic_file(), 
-                switch(selected_file_type(),
-                  "epic_export" = "Epic Export",
-                  "biobank_data" = "Biobank Data",
-                  "follow_up" = "Follow-up Data",
-                  "Unknown"))
-      ),
-      duration = 5,
-      type = "message"
-    )
-  })
-  
-  # Clear temporary selection when modal is dismissed without confirmation
-  observe({
-    # This will trigger whenever the modal state changes
-    # We use input$shiny_modal to detect when modal is closed
-    if (is.null(input$shiny_modal) || isFALSE(input$shiny_modal)) {
-      temp_selected_file(NULL)
-      temp_selected_type(NULL)
+
+    current_result$structure$matched_type <- new_type
+    current_result$structure$matched_name <- if (!is.null(IMPORT_CONFIGS[[new_type]]$name)) {
+      IMPORT_CONFIGS[[new_type]]$name
+    } else {
+      new_type
     }
-  })
-  
-  # Handle file deletion
-  observeEvent(input$file_to_delete, {
-    req(input$file_to_delete, input$file_type_context)
-    
-    dir_path <- switch(input$file_type_context,
-      "epic_export" = epc_path("epic_input_data_dir"),
-      "biobank_data" = epc_path("biobank_input_data_dir"),
-      "follow_up" = file.path("input_data", "follow_up"),
-      epc_path("epic_input_data_dir")
-    )
-    
-    file_path <- file.path(dir_path, input$file_to_delete)
-    
-    showModalSafe(modalDialog(
-      title = "Confirm Deletion",
-      tagList(
-        p(icon("exclamation-triangle", style = "color: #dc3545;"), 
-          " Are you sure you want to delete this file?"),
-        tags$div(
-          style = "padding: 10px; background: #f8f9fa; border-radius: 4px; margin: 10px 0;",
-          tags$strong("File: "), input$file_to_delete,
-          tags$br(),
-          tags$strong("Type: "), switch(input$file_type_context,
-            "epic_export" = "Epic Export",
-            "biobank_data" = "Biobank Data",
-            "follow_up" = "Follow-up Data",
-            "Unknown")
-        ),
-        p(style = "color: #dc3545;", "This action cannot be undone!")
-      ),
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("confirm_delete_file", "Delete", class = "btn btn-danger")
-      ),
-      easyClose = TRUE
-    ))
-  })
-  
-  # ============================================================================
-  # FILE DELETION CONFIRMATION OBSERVER
-  # ============================================================================
-  # Confirms and executes file deletion after user confirmation
-  # Handles deletion of EPIC export files, biobank files, or follow-up files
-  # Updates UI and clears selection if the deleted file was currently selected
-  
-  observeEvent(input$confirm_delete_file, {
-    req(input$file_to_delete, input$file_type_context)
-    
-    # Determine directory path based on file type
-    dir_path <- switch(input$file_type_context,
-      "epic_export" = epc_path("epic_input_data_dir"),
-      "biobank_data" = epc_path("biobank_input_data_dir"),
-      "follow_up" = file.path("input_data", "follow_up"),
-      epc_path("epic_input_data_dir")  # Default fallback
-    )
-    
-    file_path <- file.path(dir_path, input$file_to_delete)
-    file_to_show <- input$file_to_delete
-    
-    removeModalSafe()
-    
-    tryCatch({
-      if (file.exists(file_path)) {
-        # Delete the file
-        file.remove(file_path)
-        
-        # Clear selection if this was the currently selected file
-        if (!is.null(selected_epic_file()) && selected_epic_file() == input$file_to_delete) {
-          selected_epic_file(NULL)
-          selected_file_type(NULL)
-        }
-        
-        showNotification(
-          ui = tagList(
-            icon("check-circle"),
-            sprintf(" File '%s' deleted successfully", file_to_show)
-          ),
-          type = "message",
-          duration = 5
-        )
-        
-        # Reopen the file manager modal to show updated file list
-        shinyjs::delay(200, {
-          shinyjs::click("select_epic_file")
-        })
-      } else {
-        showNotification("File not found", type = "warning", duration = 3)
-      }
-    }, error = function(e) {
-      showNotification(
-        sprintf("Error deleting file: %s", e$message),
-        type = "error",
-        duration = 5
+
+    wizard_rv$detection_result <- current_result
+
+    if (!is.null(wizard_rv$file_path)) {
+      wizard_rv$mapping_df <- create_mapping_table(
+        wizard_rv$file_path,
+        wizard_rv$detection_result,
+        import_configs = IMPORT_CONFIGS
       )
+      wizard_rv$transformation_result <- NULL
+    }
+
+    showNotification(
+      sprintf("Importtype gewijzigd naar: %s", current_result$structure$matched_name),
+      type = "message",
+      duration = 5
+    )
+  })
+
+  # Mapping dropdown observers
+  observe({
+    req(wizard_rv$mapping_df, wizard_rv$detection_result)
+
+    lapply(seq_len(nrow(wizard_rv$mapping_df)), function(i) {
+      input_id <- paste0("wizard_map_col_", i)
+
+      observeEvent(input[[input_id]], {
+        value <- input[[input_id]]
+
+        wizard_rv$mapping_df$file_column[i] <- value
+        wizard_rv$mapping_df$is_mapped[i] <- (value != "")
+        wizard_rv$mapping_df$match_type[i] <- ifelse(value == "", "", "manual")
+
+        if (value != "" && value %in% colnames(wizard_rv$detection_result$preview_data)) {
+          col_data <- wizard_rv$detection_result$preview_data[[value]]
+          valid_data <- col_data[!is.na(col_data)]
+          if (length(valid_data) > 0) {
+            sample_values <- head(valid_data, 3)
+            sample_values <- sapply(sample_values, function(val) {
+              val_str <- as.character(val)
+              if (grepl("\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}", val_str)) {
+                val_str <- sub("\\s+\\d{2}:\\d{2}(:\\d{2})?.*$", "", val_str)
+              }
+              return(val_str)
+            })
+            wizard_rv$mapping_df$sample_data[i] <- paste(sample_values, collapse = ", ")
+          } else {
+            wizard_rv$mapping_df$sample_data[i] <- ""
+          }
+        } else {
+          wizard_rv$mapping_df$sample_data[i] <- ""
+        }
+
+        if (wizard_rv$mapping_df$is_required[i] && value != "") {
+          config <- get_import_type_config(wizard_rv$detection_result$structure$matched_type)
+          col_config <- config$required_columns[[wizard_rv$mapping_df$required_column[i]]]
+
+          if (!is.null(col_config$validation)) {
+            is_valid <- col_config$validation(wizard_rv$detection_result$preview_data[[value]])
+            wizard_rv$mapping_df$validation[i] <- ifelse(is_valid, "✓", "✗ Validation failed")
+          } else {
+            wizard_rv$mapping_df$validation[i] <- "✓"
+          }
+        } else if (value == "") {
+          wizard_rv$mapping_df$validation[i] <- ""
+        }
+      }, ignoreInit = TRUE)
     })
   })
+  
+  # ===== WIZARD: CREATE MAPPING =====
+  observeEvent(wizard_rv$detection_result, {
+    req(wizard_rv$detection_result)
+
+    wizard_rv$mapping_df <- create_mapping_table(
+      wizard_rv$file_path,
+      wizard_rv$detection_result,
+      import_configs = IMPORT_CONFIGS
+    )
+  })
+  
+  # ===== WIZARD: MAPPING DISPLAY =====
+  output$wizard_mapping_ui <- renderUI({
+    req(wizard_rv$mapping_df, wizard_rv$detection_result)
+
+    div(class = "wizard-step step-complete",
+      h3("Step 3: Column Mapping"),
+      p("Select file columns from the dropdowns. Required fields are marked with *."),
+
+      uiOutput("wizard_template_controls"),
+      uiOutput("wizard_mapping_rows"),
+      uiOutput("wizard_mapping_validation"),
+
+      hr(),
+      div(style = "text-align: right;",
+        actionButton("wizard_reset_mapping", "Reset to Auto-detect", 
+                     class = "btn-warning btn-sm", icon = icon("undo"),
+                     style = "margin-right: 10px;"),
+        actionButton("wizard_apply_mapping", "Apply Mapping", 
+                     class = "btn-secondary", icon = icon("check"),
+                     style = "margin-right: 10px;"),
+        actionButton("wizard_start_transform", "Transform Data", 
+                     class = "btn-success", icon = icon("play"))
+      )
+    )
+  })
+
+  # Template controls UI
+  output$wizard_template_controls <- renderUI({
+    req(wizard_rv$detection_result)
+
+    import_type <- wizard_rv$detection_result$structure$matched_type
+    templates <- list_templates(import_type)
+    wizard_rv$template_refresh  # dependency trigger
+
+    if (nrow(templates) > 0) {
+      template_choices <- setNames(templates$name, paste0(templates$name, " (", templates$created_at, ")"))
+      template_choices <- c("Select a template..." = "", template_choices)
+    } else {
+      template_choices <- c("Select a template..." = "")
+    }
+
+    div(style = "background-color: #e9ecef; padding: 10px; margin-bottom: 15px; border-radius: 5px;",
+      fluidRow(
+        column(4,
+          selectInput("wizard_template_select", 
+                      label = tags$span(icon("bookmark"), " Load Template:"),
+                      choices = template_choices,
+                      selectize = FALSE,
+                      width = "100%")
+        ),
+        column(4,
+          tags$label(icon("list"), " Manage Templates", 
+                     style = "font-weight: normal; margin-bottom: 5px;"),
+          uiOutput("wizard_template_manager")
+        ),
+        column(4,
+          textInput("wizard_template_name", 
+                    label = tags$span(icon("save"), " Template Name:"),
+                    placeholder = "Enter template name",
+                    width = "100%")
+        )
+      ),
+      div(style = "text-align: right; margin-top: 10px;",
+        actionButton("wizard_save_template", "Save Template", 
+                    class = "btn-primary btn-sm", 
+                    icon = icon("save"))
+      )
+    )
+  })
+  outputOptions(output, "wizard_template_controls", suspendWhenHidden = FALSE)
+
+  # Template manager UI
+  output$wizard_template_manager <- renderUI({
+    req(wizard_rv$detection_result)
+    wizard_rv$template_refresh
+
+    import_type <- wizard_rv$detection_result$structure$matched_type
+    templates <- list_templates(import_type)
+
+    if (nrow(templates) == 0) {
+      return(p("No templates saved", style = "color: #6c757d; font-style: italic;"))
+    }
+
+    template_items <- lapply(seq_len(nrow(templates)), function(i) {
+      template_name <- templates$name[i]
+      div(
+        style = "margin-bottom: 8px; padding: 5px; background-color: white; border-radius: 3px;",
+        span(style = "font-weight: 500;", template_name),
+        div(style = "float: right;",
+          actionButton(
+            paste0("wizard_btn_rename_", i),
+            NULL,
+            icon = icon("edit"),
+            class = "btn-warning btn-xs",
+            style = "padding: 2px 6px; font-size: 10px; margin-left: 3px;",
+            onclick = sprintf("Shiny.setInputValue('wizard_rename_template', '%s', {priority: 'event'});", template_name)
+          ),
+          actionButton(
+            paste0("wizard_btn_delete_", i),
+            NULL,
+            icon = icon("trash"),
+            class = "btn-danger btn-xs",
+            style = "padding: 2px 6px; font-size: 10px; margin-left: 3px;",
+            onclick = sprintf("Shiny.setInputValue('wizard_delete_template', '%s', {priority: 'event'});", template_name)
+          )
+        )
+      )
+    })
+
+    do.call(div, template_items)
+  })
+
+  # Save template
+  observeEvent(input$wizard_save_template, {
+    req(wizard_rv$mapping_df, wizard_rv$detection_result, input$wizard_template_name)
+
+    if (input$wizard_template_name == "") {
+      showNotification("Please enter a template name", type = "warning")
+      return()
+    }
+
+    import_type <- wizard_rv$detection_result$structure$matched_type
+
+    result <- save_mapping_template(
+      template_name = input$wizard_template_name,
+      import_type = import_type,
+      mapping_df = wizard_rv$mapping_df,
+      description = paste("Created:", Sys.time())
+    )
+
+    if (result$success) {
+      showNotification(result$message, type = "message")
+      updateTextInput(session, "wizard_template_name", value = "")
+      wizard_rv$template_refresh <- wizard_rv$template_refresh + 1
+    } else {
+      showNotification(result$message, type = "error")
+    }
+  })
+
+  # Load template
+  observeEvent(input$wizard_template_select, {
+    req(input$wizard_template_select, wizard_rv$detection_result, wizard_rv$mapping_df)
+
+    if (input$wizard_template_select == "") return()
+
+    import_type <- wizard_rv$detection_result$structure$matched_type
+    template_name <- input$wizard_template_select
+
+    result <- load_mapping_template(template_name, import_type)
+
+    if (result$success) {
+      wizard_rv$mapping_df <- apply_template_to_mapping(wizard_rv$mapping_df, result$template)
+      showNotification(paste("Template applied:", template_name), type = "message")
+      updateSelectInput(session, "wizard_template_select", selected = "")
+    } else {
+      showNotification(result$message, type = "error")
+    }
+  })
+
+  # Delete template
+  observeEvent(input$wizard_delete_template, {
+    req(wizard_rv$detection_result, input$wizard_delete_template)
+
+    import_type <- wizard_rv$detection_result$structure$matched_type
+    template_name <- input$wizard_delete_template
+
+    result <- delete_template(template_name, import_type)
+
+    if (result$success) {
+      showNotification(result$message, type = "message")
+      wizard_rv$template_refresh <- wizard_rv$template_refresh + 1
+    } else {
+      showNotification(result$message, type = "error")
+    }
+  })
+
+  # Rename template
+  observeEvent(input$wizard_rename_template, {
+    req(wizard_rv$detection_result, input$wizard_rename_template)
+
+    import_type <- wizard_rv$detection_result$structure$matched_type
+    old_name <- input$wizard_rename_template
+
+    showModal(modalDialog(
+      title = paste("Rename Template:", old_name),
+      textInput("wizard_new_template_name", "New name:", value = old_name),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("wizard_confirm_rename", "Rename", class = "btn-primary")
+      )
+    ))
+  })
+
+  observeEvent(input$wizard_confirm_rename, {
+    req(input$wizard_new_template_name, input$wizard_rename_template, wizard_rv$detection_result)
+
+    import_type <- wizard_rv$detection_result$structure$matched_type
+    old_name <- input$wizard_rename_template
+    new_name <- input$wizard_new_template_name
+
+    if (new_name == "" || new_name == old_name) {
+      showNotification("Please enter a different name", type = "warning")
+      return()
+    }
+
+    load_result <- load_mapping_template(old_name, import_type)
+
+    if (load_result$success) {
+      template <- load_result$template
+      temp_mapping_df <- wizard_rv$mapping_df
+      temp_mapping_df <- apply_template_to_mapping(temp_mapping_df, template)
+
+      save_result <- save_mapping_template(new_name, import_type, temp_mapping_df, 
+                                          description = paste("Renamed from:", old_name))
+
+      if (save_result$success) {
+        delete_template(old_name, import_type)
+        showNotification(paste("Template renamed to:", new_name), type = "message")
+        wizard_rv$template_refresh <- wizard_rv$template_refresh + 1
+        removeModal()
+      } else {
+        showNotification(save_result$message, type = "error")
+      }
+    } else {
+      showNotification(load_result$message, type = "error")
+    }
+  })
+
+  # Mapping rows UI
+  output$wizard_mapping_rows <- renderUI({
+    req(wizard_rv$mapping_df, wizard_rv$detection_result)
+
+    available_cols <- c("(not mapped)" = "", wizard_rv$detection_result$structure$col_names)
+    mapping_df <- wizard_rv$mapping_df
+
+    mapping_rows <- lapply(seq_len(nrow(mapping_df)), function(i) {
+      row <- mapping_df[i, ]
+
+      row_style <- if (row$is_required) {
+        "background-color: #fff3cd; padding: 10px; margin-bottom: 5px; border-radius: 3px;"
+      } else {
+        "background-color: #f8f9fa; padding: 10px; margin-bottom: 5px; border-radius: 3px;"
+      }
+
+      status_icon <- if (row$validation == "✓") {
+        span(style = "color: green; font-size: 18px;", "✓")
+      } else if (row$validation == "✗ Validation failed") {
+        span(style = "color: red; font-size: 18px;", "✗")
+      } else if (row$is_mapped) {
+        span(style = "color: blue; font-size: 18px;", "→")
+      } else {
+        span(style = "color: gray; font-size: 18px;", "○")
+      }
+
+      div(
+        class = "mapping-row",
+        style = row_style,
+        fluidRow(
+          column(3,
+            div(
+              class = "mapping-field-name",
+              strong(if (row$is_required) paste0(row$required_column, " *") else row$required_column)
+            ),
+            div(
+              class = "mapping-description",
+              style = "color: #6c757d; margin-top: 5px;",
+              row$description
+            )
+          ),
+          column(5,
+            div(style = "min-width: 0; max-width: 100%; width: 100%;",
+              selectInput(
+                inputId = paste0("wizard_map_col_", i),
+                label = NULL,
+                choices = available_cols,
+                selected = row$file_column,
+                width = "100%"
+              )
+            )
+          ),
+          column(3,
+            if (row$sample_data != "") {
+              div(
+                class = "mapping-sample-container",
+                tags$small(style = "color: #6c757d;", "Sample:"),
+                div(
+                  class = "mapping-sample",
+                  style = "margin-top: 3px;",
+                  row$sample_data
+                )
+              )
+            } else {
+              tags$small(style = "color: #adb5bd;", "No data preview")
+            }
+          ),
+          column(1,
+            div(style = "text-align: center; padding-top: 10px;", status_icon)
+          )
+        )
+      )
+    })
+
+    tagList(mapping_rows)
+  })
+
+  # Mapping validation status
+  output$wizard_mapping_validation <- renderUI({
+    req(wizard_rv$mapping_df)
+
+    validation <- validate_mapping(wizard_rv$mapping_df)
+    status_color <- ifelse(validation$is_valid, "#28a745", "#dc3545")
+    bg_color <- ifelse(validation$is_valid, "#d4edda", "#f8d7da")
+
+    div(
+      style = sprintf("padding: 10px; margin-top: 15px; background-color: %s; border-left: 4px solid %s;", 
+                     bg_color, status_color),
+      validation$message
+    )
+  })
+  
+  # Reset mapping button
+  observeEvent(input$wizard_reset_mapping, {
+    req(wizard_rv$file_path, wizard_rv$detection_result)
+
+    wizard_rv$mapping_df <- create_mapping_table(
+      wizard_rv$file_path,
+      wizard_rv$detection_result,
+      import_configs = IMPORT_CONFIGS
+    )
+
+    showNotification("Mapping reset to auto-detected values", type = "message")
+  })
+
+  # Apply mapping button (validate only)
+  observeEvent(input$wizard_apply_mapping, {
+    req(wizard_rv$mapping_df)
+    validation <- validate_mapping(wizard_rv$mapping_df)
+    if (!validation$is_valid) {
+      showNotification(validation$message, type = "error")
+    } else {
+      showNotification("Mapping applied", type = "message")
+    }
+  })
+
+  # Trigger transformation from Step 3
+  observeEvent(input$wizard_start_transform, {
+    req(wizard_rv$file_path, wizard_rv$detection_result, wizard_rv$mapping_df)
+
+    validation <- validate_mapping(wizard_rv$mapping_df)
+    if (!validation$is_valid) {
+      showNotification(validation$message, type = "error")
+      return()
+    }
+
+    showNotification("Transforming data...", type = "message", duration = NULL, id = "wizard_transforming")
+    shinyjs::disable("wizard_start_transform")
+
+    tryCatch({
+      mapping_updates <- data.frame()
+      for (i in seq_len(nrow(wizard_rv$mapping_df))) {
+        if (!is.null(input[[paste0("wizard_map_col_", i)]])) {
+          wizard_rv$mapping_df$file_column[i] <- input[[paste0("wizard_map_col_", i)]]
+          wizard_rv$mapping_df$is_mapped[i] <- (wizard_rv$mapping_df$file_column[i] != "")
+          wizard_rv$mapping_df$match_type[i] <- ifelse(wizard_rv$mapping_df$file_column[i] == "", "", "manual")
+        }
+      }
+
+      transform_result <- transform_import_data(
+        wizard_rv$file_path,
+        wizard_rv$detection_result,
+        wizard_rv$mapping_df,
+        sheet = if (!is.null(wizard_rv$selected_sheets) && length(wizard_rv$selected_sheets) == 1) wizard_rv$selected_sheets[1] else wizard_rv$selected_sheet,
+        sheets = if (!is.null(wizard_rv$selected_sheets) && length(wizard_rv$selected_sheets) > 1) wizard_rv$selected_sheets else NULL
+      )
+
+      removeNotification("wizard_transforming")
+      wizard_rv$transformation_result <- transform_result
+      wizard_rv$show_preview <- TRUE
+      wizard_rv$export_result <- NULL
+
+      is_success <- isTRUE(transform_result$validation$is_valid)
+      if (is_success) {
+        showNotification("Transformation successful", type = "message", duration = 4)
+      } else {
+        err_count <- length(transform_result$validation$errors)
+        warn_count <- length(transform_result$validation$warnings)
+        msg <- sprintf("Transformation completed with %d errors, %d warnings", err_count, warn_count)
+        showNotification(msg, type = "warning", duration = 6)
+      }
+
+      shinyjs::enable("wizard_start_transform")
+    }, error = function(e) {
+      removeNotification("wizard_transforming")
+      showNotification(sprintf("Error: %s", e$message), type = "error", duration = 5)
+      shinyjs::enable("wizard_start_transform")
+    })
+  })
+
+  # Export transformed data
+  observeEvent(input$wizard_export, {
+    req(wizard_rv$transformation_result)
+
+    res <- tryCatch({
+      export_transformation_result(
+        wizard_rv$transformation_result,
+        format = "csv"
+      )
+    }, error = function(e) {
+      list(success = FALSE, message = paste("Export error:", e$message))
+    })
+
+    wizard_rv$export_result <- res
+
+    if (isTRUE(res$success)) {
+      showNotification(
+        paste(res$message, "Rows:", res$rows, "| Columns:", res$columns),
+        type = "message",
+        duration = 8
+      )
+      
+      # Reload option lists to refresh dropdown options with new file data
+      cat("[Import Wizard] Reloading option lists after successful export...\n")
+      tryCatch({
+        options(epic2castor.force_option_reload = TRUE)
+        local_env <- new.env(parent = globalenv())
+        sys.source(file.path(epc_path("scripts_dir"), "option_lists2.R"), envir = local_env)
+        
+        # Update global variables with fresh option data
+        option_data <<- local_env$option_data
+        checkBoxesValues <<- local_env$checkBoxesValues
+        radioButtonOptionValues <<- local_env$radioButtonOptionValues
+        checkboxes <<- local_env$checkboxes
+        radiobuttons <<- local_env$radiobuttons
+        metaRadioButtons <<- local_env$metaRadioButtons
+        metaVariables <<- local_env$metaVariables
+        
+        # Force table re-render to update cell validation with new options
+        current_file <- isolate(activeTable())
+        current_tab <- isolate(get_active_tab_name())
+        if (!is.null(current_file) && !is.null(current_tab)) {
+          active_data <- get_active_tab_data()
+          if (!is.null(active_data)) {
+            render_table(active_data, current_file, mode = "full")
+            cat("[Import Wizard] Table re-rendered with updated options\n")
+          }
+        }
+        
+        cat("[Import Wizard] Option lists reloaded successfully\n")
+      }, error = function(e) {
+        cat(sprintf("[Import Wizard] Warning: Failed to reload option lists: %s\n", conditionMessage(e)))
+      })
+    } else {
+      showNotification(res$message, type = "error", duration = 6)
+    }
+  })
+
+  output$wizard_export_result <- renderUI({
+    req(wizard_rv$export_result)
+    res <- wizard_rv$export_result
+
+    if (isTRUE(res$success)) {
+      div(
+        style = "margin-top: 10px; padding: 10px; background-color: #d4edda; border-radius: 5px;",
+        p(style = "margin: 0; color: #155724;",
+          icon("check-circle"),
+          strong(" Export successful!"),
+          br(),
+          tags$small(
+            "File:", if (!is.null(res$path)) tags$code(basename(res$path)) else "",
+            if (!is.null(res$rows)) tags$br(),
+            if (!is.null(res$rows)) paste("Rows:", res$rows, "| Columns:", res$columns)
+          )
+        )
+      )
+    } else {
+      div(
+        style = "margin-top: 10px; padding: 10px; background-color: #f8d7da; border-radius: 5px;",
+        p(style = "margin: 0; color: #721c24;",
+          icon("exclamation-circle"),
+          strong(" Export failed: "),
+          res$message
+        )
+      )
+    }
+  })
+
+  # ===== WIZARD: PREVIEW =====
+  output$wizard_preview_ui <- renderUI({
+    req(wizard_rv$file_path, wizard_rv$detection_result)
+    if (!isTRUE(wizard_rv$show_preview)) return(NULL)
+    req(wizard_rv$transformation_result)
+    
+    div(class = "wizard-step",
+      h3("Step 4: Preview & Export"),
+      p("Review the transformed data below."),
+      div(
+        style = "background-color: #e7f3ff; padding: 10px; margin-bottom: 15px; border-radius: 5px;",
+        fluidRow(
+          column(8,
+            h4(icon("download"), " Export Data", style = "margin-top: 0; margin-bottom: 5px;"),
+            p(style = "margin: 0; color: #6c757d;", 
+              tags$small("Export transformed data to CSV (semicolon separated)"))
+          ),
+          column(4,
+            div(style = "text-align: right; margin-top: 10px;",
+              actionButton("wizard_export", "Export to CSV", 
+                           class = "btn-success", 
+                           icon = icon("file-csv"))
+            )
+          )
+        ),
+        uiOutput("wizard_export_result")
+      ),
+      tags$div(
+        style = "max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; overflow-x: auto;",
+        DT::renderDataTable({
+          tryCatch({
+            preview_data <- wizard_rv$transformation_result$transformed_data
+            head(preview_data, 50)
+          }, error = function(e) {
+            data.frame("Error" = e$message)
+          })
+        })
+      )
+    )
+  })
+  
+  # ===== WIZARD: TRANSFORMATION & EXPORT =====
 
   # ============================================================================
   # UNDO OBSERVER
@@ -8043,6 +10052,13 @@ server <- function(input, output, session) {
     # Reset to first tab
     tabState$activeTab <- tabState$tabs[[1]]$id
     tabState$nextTabId <- length(tabState$tabs) + 1
+    
+    # Detect duplicates if this is the elements table
+    if (input$file == "elements") {
+      active_data <- get_active_tab_data()
+      dupes <- detect_duplicate_elements(active_data)
+      duplicateElements(dupes)
+    }
     
     # Re-render table with fresh data from database
     render_table(get_active_tab_data(), input$file)

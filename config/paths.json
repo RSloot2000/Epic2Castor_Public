@@ -24,6 +24,7 @@
   "mapping_possible_values_dir": "mapping/possibleValues",
   "logger_script": "scripts/Logger.r",
   "config_script": "scripts/config.R",
+  "import_wizard_script": "scripts/import_wizard_combined.r",
   "batch_upload_helper_script": "scripts/batch_upload_helper.r",
   "castor_datastructure_file": "castor_meta/Datastructure.json",
   "castor_retrieval_script": "scripts/CastorRetrieval.r",

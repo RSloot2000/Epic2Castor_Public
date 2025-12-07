@@ -1,7 +1,6 @@
 local_lib <- file.path(getwd(), "Rlibs")
 if (!dir.exists(local_lib)) dir.create(local_lib, recursive = TRUE)
 .libPaths(local_lib)
-options(install.packages.compile.from.source = "never")
 options(repos = c(CRAN = "https://cloud.r-project.org"))
 options(
   help_type = "html",

@@ -28,6 +28,7 @@ epc_load_paths <- function() {
     # Extra defaults zodat scripts altijd werken ook zonder paths.json
     logger_script                    = "scripts/Logger.r",
     config_script                    = "scripts/config.R",
+    import_wizard_script             = "scripts/import_wizard_combined.r",
     batch_upload_helper_script       = "scripts/batch_upload_helper.r",
     castor_field_options_file        = "castor_meta/field_options.csv",
     castor_study_variablelist_file   = "castor_meta/study_variablelist.csv",

@@ -9,3 +9,5 @@ output_data/
 castor_export/
 db/
 .lintr
+Rlibs/
+config/mapping_templates/
