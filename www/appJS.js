@@ -1391,10 +1391,20 @@ function initializeSelect2OnElement($sel) {
         $sel.select2("destroy");
     }
     
-    // Initialize select2 with full width and body as dropdown parent
+    // Initialize select2 with full width and body parent; we manage scroll manually to avoid jumps
     $sel.select2({
         width: '100%',
-        dropdownParent: $('body') // Render dropdown in body to avoid overflow issues
+        dropdownParent: $('body')
+    });
+
+    // Remember scroll position of the table body right before opening the dropdown
+    $sel.off('select2:opening').on('select2:opening', function() {
+        const $scrollBody = $('.dataTables_scrollBody');
+        const winScroll = $(window).scrollTop();
+        if ($scrollBody.length) {
+            $sel.data('scrollTopBeforeOpen', $scrollBody.scrollTop());
+        }
+        $sel.data('windowScrollBeforeOpen', winScroll);
     });
     
     // Position dropdown menu correctly using fixed positioning
@@ -1406,6 +1416,9 @@ function initializeSelect2OnElement($sel) {
                 // Get position of the select2 container
                 const rect = $container[0].getBoundingClientRect();
                 const $dd = $('.select2-container--open .select2-dropdown');
+                const $scrollBody = $('.dataTables_scrollBody');
+                const storedScrollTop = $sel.data('scrollTopBeforeOpen');
+                const storedWinScroll = $sel.data('windowScrollBeforeOpen');
 
                 if ($dd.length === 0) return;
 
@@ -1432,6 +1445,14 @@ function initializeSelect2OnElement($sel) {
                     $dd.removeClass('select2-dropdown--below').addClass('select2-dropdown--above');
                     $sel.next('.select2-container').removeClass('select2-container--below').addClass('select2-container--above');
                     $dd.css('top', topPos + 'px');
+                }
+
+                // Restore table scroll position (Select2 may auto-scroll the container)
+                if ($scrollBody.length && storedScrollTop !== undefined) {
+                    $scrollBody.scrollTop(storedScrollTop);
+                }
+                if (storedWinScroll !== undefined) {
+                    $(window).scrollTop(storedWinScroll);
                 }
             });
         });

@@ -1,3 +1,12 @@
+# Zorg dat subprocess dezelfde projectpackages vindt (bv. jsonlite in ./Rlibs)
+project_lib <- tryCatch(
+  normalizePath(file.path(getwd(), "Rlibs"), winslash = "/", mustWork = FALSE),
+  error = function(e) ""
+)
+if (nzchar(project_lib) && dir.exists(project_lib)) {
+  .libPaths(c(project_lib, .libPaths()))
+}
+
 # Paden centraliseren via scripts/paths.json
 paths <- jsonlite::fromJSON(file.path("config", "paths.json"))
 

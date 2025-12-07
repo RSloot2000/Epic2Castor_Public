@@ -3996,7 +3996,7 @@ server <- function(input, output, session) {
         })
       }
 
-      try(file.remove(done_flag), silent = TRUE)
+      if (file.exists(done_flag)) try(file.remove(done_flag), silent = TRUE)
       runnerState$proc <- NULL
       runnerState$kind <- NULL
       shinyjs::enable("refresh_castor")
@@ -9914,7 +9914,7 @@ server <- function(input, output, session) {
         metaVariables <<- local_env$metaVariables
         
         # Force table re-render to update cell validation with new options
-        current_file <- isolate(activeTable())
+        current_file <- isolate(current_table_name())
         current_tab <- isolate(get_active_tab_name())
         if (!is.null(current_file) && !is.null(current_tab)) {
           active_data <- get_active_tab_data()
