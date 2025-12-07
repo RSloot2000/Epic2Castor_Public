@@ -1161,15 +1161,22 @@ function initTableResizeGrip() {
             // Update container width and height
             $container.css('width', newWidth + 'px');
             
-            // Update scrollDiv width and height
+            // Update scrollDiv width and height so the container actually grows
             $scrollDiv.css({
                 'width': newWidth + 'px',
                 'height': newHeight + 'px'
             });
             
-            // Update DataTables scrollBody height
+            // Update DataTables scroll wrapper + body height (use height, not only max-height)
             const scrollBodyHeight = newHeight - 100;
-            $('.dataTables_scrollBody').css('max-height', scrollBodyHeight + 'px');
+            $('.dataTables_scroll').css({
+                'height': newHeight + 'px',
+                'max-height': newHeight + 'px'
+            });
+            $('.dataTables_scrollBody').css({
+                'height': scrollBodyHeight + 'px',
+                'max-height': scrollBodyHeight + 'px'
+            });
             
             // Update grip position based on new dimensions - RELATIVE to table size
             const $scrollBodyForGrip = $('.dataTables_scrollBody');
@@ -1400,11 +1407,10 @@ function initializeSelect2OnElement($sel) {
     // Remember scroll position of the table body right before opening the dropdown
     $sel.off('select2:opening').on('select2:opening', function() {
         const $scrollBody = $('.dataTables_scrollBody');
-        const winScroll = $(window).scrollTop();
         if ($scrollBody.length) {
             $sel.data('scrollTopBeforeOpen', $scrollBody.scrollTop());
         }
-        $sel.data('windowScrollBeforeOpen', winScroll);
+        $sel.data('windowScrollBeforeOpen', $(window).scrollTop());
     });
     
     // Position dropdown menu correctly using fixed positioning
@@ -1425,23 +1431,38 @@ function initializeSelect2OnElement($sel) {
                 // Apply fixed positioning based on container location
                 $dd.css({
                     position: 'fixed',
-                    left:   rect.left   + 'px',
+                    left: rect.left + 'px',
                     minWidth: rect.width + 'px'
                 });
 
-                // Check if dropdown fits below the select box
-                const dropdownHeight = $dd.outerHeight();
+                // Dynamic placement with clamped height to avoid jumping to the top
+                const rawHeight = $dd.outerHeight();
                 const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-                const fitsBelow = rect.bottom + dropdownHeight <= viewportHeight;
+                const padding = 8; // small viewport margin
+                const spaceBelow = viewportHeight - rect.bottom - padding;
+                const spaceAbove = rect.top - padding;
 
-                if (fitsBelow) {
-                    // Position dropdown below the select box
+                let placeBelow = true;
+                let maxHeight = null;
+                if (spaceBelow >= rawHeight) {
+                    placeBelow = true;
+                } else if (spaceAbove >= rawHeight) {
+                    placeBelow = false;
+                } else {
+                    // Not enough space on either side: choose the larger side and clamp height
+                    placeBelow = spaceBelow >= spaceAbove;
+                    maxHeight = Math.max(120, placeBelow ? spaceBelow : spaceAbove);
+                    $dd.css({ maxHeight: maxHeight + 'px', overflowY: 'auto' });
+                }
+
+                const usedHeight = maxHeight ? Math.min(rawHeight, maxHeight) : rawHeight;
+
+                if (placeBelow) {
                     $dd.removeClass('select2-dropdown--above').addClass('select2-dropdown--below');
                     $sel.next('.select2-container').removeClass('select2-container--above').addClass('select2-container--below');
                     $dd.css('top', rect.bottom + 'px');
                 } else {
-                    // Position dropdown above the select box if not enough space below
-                    const topPos = Math.max(rect.top - dropdownHeight, 0);
+                    const topPos = Math.max(rect.top - usedHeight, padding);
                     $dd.removeClass('select2-dropdown--below').addClass('select2-dropdown--above');
                     $sel.next('.select2-container').removeClass('select2-container--below').addClass('select2-container--above');
                     $dd.css('top', topPos + 'px');
@@ -1452,10 +1473,20 @@ function initializeSelect2OnElement($sel) {
                     $scrollBody.scrollTop(storedScrollTop);
                 }
                 if (storedWinScroll !== undefined) {
-                    $(window).scrollTop(storedWinScroll);
+                    // Restore window scroll in case focus auto-scrolled the page
+                    const currentWinScroll = $(window).scrollTop();
+                    if (Math.abs(currentWinScroll - storedWinScroll) > 1) {
+                        $(window).scrollTop(storedWinScroll);
+                    }
                 }
             });
         });
+
+    // Cleanup stored scroll data on close to avoid stale values
+    $sel.off('select2:close').on('select2:close', function() {
+        $sel.removeData('scrollTopBeforeOpen');
+        $sel.removeData('windowScrollBeforeOpen');
+    });
     
     // Apply CSS class after select2 initialization (for color coding cells)
     const cssClass = $sel.data('cssclass');
@@ -1466,6 +1497,8 @@ function initializeSelect2OnElement($sel) {
                 .find('.select2-selection')
                 .removeClass("red-cell blue-cell orange-cell") // Remove old classes first
                 .addClass(cssClass); // Apply new class
+            // Also mirror class on original select for consistency
+            $sel.removeClass("red-cell blue-cell orange-cell").addClass(cssClass);
         }, 10);
     }
     
@@ -1478,6 +1511,7 @@ function initializeSelect2OnElement($sel) {
                     .find('.select2-selection')
                     .removeClass("red-cell blue-cell orange-cell")
                     .addClass(cssClass);
+                $sel.removeClass("red-cell blue-cell orange-cell").addClass(cssClass);
             }, 10);
         }
     });

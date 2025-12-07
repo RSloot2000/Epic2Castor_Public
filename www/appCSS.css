@@ -265,8 +265,8 @@ thead tr[style*="height: 0px"] {
 #table table th .resize-grip {
   position: absolute;
   top: 0;
-  right: -2px;                   /* Center on border */
-  width: 4px;
+  right: -4px;                   /* Center wider grip on border */
+  width: 8px;                    /* Make grab area easier to hit */
   height: 100%;
   cursor: col-resize;
   background: rgba(200, 200, 200, 0.5); /* Subtly visible by default */
@@ -507,11 +507,41 @@ select.lazy-load.select2-hidden-accessible {
   display: none !important; 
 }
 
+/* Style the lazy placeholder div to match Select2 selection */
+.lazy-dropdown {
+  display: inline-block;
+  width: 100%;
+  min-height: 32px;
+  line-height: 30px;
+  padding: 2px 6px;
+  box-sizing: border-box;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #fff;
+  color: #212529;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Select2 container - full width inline display */
 .select2-container {
   display: inline-block !important;
   width: 100%          !important;
   position: relative   !important;
+}
+
+/* Match Select2 selection look to the placeholder */
+.select2-container .select2-selection--single {
+  min-height: 32px !important;
+  height: 32px !important;
+  line-height: 30px !important;
+  padding: 2px 6px !important;
+  border: 1px solid #ced4da !important;
+  border-radius: 4px !important;
+  background: #fff !important;
+  box-sizing: border-box !important;
 }
 
 /* Ensure Select2 dropdowns appear above other elements */
@@ -538,6 +568,11 @@ select.lazy-load.select2-hidden-accessible {
   background: #ffe0b2 !important;   /* Light orange background */
   color: #ff9800 !important; 
 }
+
+/* Keep color classes on lazy placeholder too */
+.lazy-dropdown.red-cell { border: 1px solid red; background: #fdd; color: red; }
+.lazy-dropdown.blue-cell { border: 1px solid blue; background: #ddf; color: blue; }
+.lazy-dropdown.orange-cell { border: 1px solid #ff9800; background: #ffe0b2; color: #ff9800; }
 
 /* ===== POPOVERS ===== */
 
