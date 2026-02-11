@@ -215,11 +215,6 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 │   │   └── status.json
 │   └── ml_predictions/                 # ML prediction logs (optional)
 │       └── predictions_YYYYMM.csv      # Monthly prediction tracking
-├── Rlibs/                              # Local R package library (gitignored)
-│   ├── shiny/
-│   ├── data.table/
-│   ├── xgboost/
-│   └── ...                             # Other installed packages
 └── www/                                # Static assets for Shiny UI
     ├── appCSS.css
     ├── appJS.js
@@ -431,7 +426,7 @@ install.packages(c(
   "Rcpp", "shiny", "data.table", "DT", "shinyjs", "shinydashboard",
   "readxl", "readr", "processx", "jsonlite", "httr",
   "DBI", "RSQLite", "digest", "uuid", "stringdist", "later",
-  "Matrix", "text2vec", "xgboost"
+  "Matrix", "text2vec", "xgboost", "plotly"
 ), lib = .libPaths()[1], type = "binary",
    repos = "https://packagemanager.posit.co/cran/2024-10-01")
 ```
