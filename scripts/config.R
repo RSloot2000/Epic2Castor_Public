@@ -40,7 +40,10 @@ epc_load_paths <- function() {
     autofill_script                  = "scripts/autofill.r",
     medical_terms_dict               = "config/medical_terms.json",
     mapping_radiobuttons_file        = "mapping/waarde_radiobuttons.csv",
-    mapping_checkboxes_file          = "mapping/waarde_checkboxes.csv"
+    mapping_checkboxes_file          = "mapping/waarde_checkboxes.csv",
+    # Dashboard
+    dashboard_script                 = "scripts/dashboard.r",
+    dashboard_cache_dir              = "db/dashboard_cache"
   )
 
   cfg_path <- file.path("config", "paths.json")

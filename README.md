@@ -22,10 +22,8 @@ Funding:
 - [Overview](#overview)
 - [Features](#features)
 - [Project structure](#project-structure)
-- [Installation](#installation)
-  - [Prerequisites](#prerequisites)
-  - [Required R Packages](#required-r-packages)
 - [Quick Start Guide](#quick-start-guide)
+  - [Prerequisites](#prerequisites)
   - [Step 1: Install R, Rtools and RStudio](#step-1-install-r-rtools-and-rstudio)
   - [Step 2: Open the Project](#step-2-open-the-project)
   - [Step 3: Install Required R Packages](#step-3-install-required-r-packages)
@@ -34,6 +32,8 @@ Funding:
   - [Step 6: Refresh Castor Metadata](#step-6-refresh-castor-metadata)
   - [Step 7: Load Input File](#step-7-load-input-file)
   - [Step 8: Create Your First Mapping](#step-8-create-your-first-mapping)
+- [Advanced Installation](#advanced-installation)
+  - [For Radboudumc Managed Workstations](#for-radboudumc-managed-workstations-app-v--werkplek-20)
 - [Configuration](#configuration)
   - [First Time Setup](#first-time-setup)
   - [API Configuration](#api-configuration)
@@ -45,6 +45,7 @@ Funding:
   - [Mapping workflow](#mapping-workflow)
   - [Keyboard Shortcuts](#keyboard-shortcuts)
   - [Auto-fill EPIC values](#auto-fill-epic-values)
+  - [Study Dashboard](#study-dashboard)
   - [Run the ETL](#run-the-etl)
   - [Generate Castor upload payloads](#generate-castor-upload-payloads)
 - [Troubleshooting](#troubleshooting)
@@ -112,6 +113,16 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
   - Excel sheet selection for multi-sheet workbooks.
   - Direct data transformation and CSV export.
 
+- **Study Dashboard**
+  - Real-time study overview powered entirely by the Castor API.
+  - **Patient Inclusion**: Total included/archived patients, cumulative inclusion curve over time, monthly inclusion bar chart.
+  - **Data Completeness**: Overall completion percentage, per-form completion breakdown (e.g., Medical History, Symptoms, Diagnostic Evaluation), per-record and per-field fill rates.
+  - **Biobank Samples**: Total sample count, breakdown by sample type and status, per-patient sample overview.
+  - Integrated field ID → variable name mapping via the `/export/structure` API endpoint.
+  - 30-minute intelligent caching to minimize API calls.
+  - One-click refresh for live data updates.
+  - Accessible via the **Dashboard** button in the app's top menu bar.
+
 ---
 
 ## Project structure
@@ -145,6 +156,7 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 │   ├── export_approved.r               # Export approved autofill suggestions
 │   ├── batch_upload_helper.r           # Batch upload utilities
 │   ├── import_wizard_combined.r        # Import wizard module (detection, mapping, transformation)
+│   ├── dashboard.r                     # Study dashboard module (inclusion, completeness, biobank)
 │   ├── baseline/
 │   │   ├── baseline.r                  # Baseline ETL orchestrator
 │   │   └── baselineExport.r            # Baseline Castor upload helper
@@ -187,7 +199,12 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 │       └── follow_up.csv
 ├── db/                                 # SQLite databases (mapping & metadata)
 │   ├── mapping_data.db
-│   └── castor_meta.db
+│   ├── castor_meta.db
+│   └── dashboard_cache/                # Dashboard API response cache (auto-generated)
+│       ├── records.rds
+│       ├── data_points.rds
+│       ├── field_mapping.rds
+│       └── biobank.rds
 ├── logs/                               # Run logs (gitignored)
 │   ├── 2025-11-22_20-08/               # Example run directory
 │   │   ├── App_log.txt
@@ -215,7 +232,9 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 
 ---
 
-## Installation
+## Quick Start Guide
+
+Follow these steps to get Epic2Castor up and running:
 
 ### Prerequisites
 
@@ -223,52 +242,6 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
 - Rtools ≥ 4.5 (Windows only)
 - RStudio (recommended)
 - Internet access for packages and Castor API calls (unless cached metadata is provided)
-
-### Required R Packages
-
-Epic2Castor requires the following R packages:
-
-```r
-install.packages(c(
-  "shiny", "data.table", "DT", "shinyjs", "shinydashboard",
-  "readxl", "readr", "processx", "jsonlite", "httr",
-  "DBI", "RSQLite", "digest", "uuid", "stringdist", "later",
-  "Matrix", "text2vec", "xgboost"
-))
-```
-
-**Note about ML packages** (`Matrix`, `text2vec`, `xgboost`):
-- These enable ML-based autofill predictions (8th matching strategy)
-- If installation fails, the app works fine with its standard 7 autofill strategies
-- Enable or disable ML predictions via checkbox in the app's Autofill modal
-- If not installed, ML autofill is automatically disabled
-
-**Important**: Packages are installed locally within the project directory (in `Rlibs/`), so you must open the project first before installing packages.
-
-#### For Managed Environments (VMware, App-V, OneDrive, Citrix)
-
-If you're in a managed/virtual environment where source compilation is blocked, force binary-only installation:
-
-```r
-# Prevent R from compiling from source
-options(install.packages.compile.from.source = "never")
-
-# Install as binaries only
-install.packages(c(
-  "shiny", "data.table", "DT", "shinyjs", "shinydashboard",
-  "readxl", "readr", "processx", "jsonlite", "httr",
-  "DBI", "RSQLite", "digest", "uuid", "stringdist", "later",
-  "Matrix", "text2vec", "xgboost"
-), type = "binary")
-```
-
-**Note**: Package installation may take 5-10 minutes depending on your internet connection. Scripts invoked via `Rscript` auto-create writable user libraries and install missing packages when necessary.
-
----
-
-## Quick Start Guide
-
-Follow these steps to get Epic2Castor up and running:
 
 ### Step 1: Install R, Rtools and RStudio
 
@@ -283,7 +256,7 @@ Follow these steps to get Epic2Castor up and running:
    - Download Rtools ≥ 4.5 matching your R version
    - Run the installer with default settings
    - **Why Rtools?** Required for compiling R packages from source. Windows lacks built-in compilers, while macOS/Linux have them pre-installed.
-   - **Note**: If using binary-only installation (see Installation section), Rtools is optional but still recommended.
+   - **Note**: If using binary-only installation (see [Advanced Installation](#advanced-installation)), Rtools is optional but still recommended.
 
 3. **Download and install RStudio** (recommended):
    - Visit [https://posit.co/download/rstudio-desktop/](https://posit.co/download/rstudio-desktop/)
@@ -298,15 +271,24 @@ Follow these steps to get Epic2Castor up and running:
 
 ### Step 3: Install Required R Packages
 
-**Packages are installed locally** within the project directory (in `Rlibs/`), so ensure the project is open first.
+**Important**: On Radboudumc managed workstations, packages must be installed to the network-based personal R library. See [Advanced Installation](#advanced-installation) below instead for instructions. This step can be skipped.
 
-#### Option A: Automatic Installation (Recommended)
+```r
+install.packages(c(
+  "shiny", "data.table", "DT", "shinyjs", "shinydashboard",
+  "readxl", "readr", "processx", "jsonlite", "httr",
+  "DBI", "RSQLite", "digest", "uuid", "stringdist", "later",
+  "Matrix", "text2vec", "xgboost", "plotly"
+))
+```
 
-Simply proceed to Step 4 and launch the app - it will automatically install missing packages on first run.
+**Note about ML packages** (`Matrix`, `text2vec`, `xgboost`):
+- These enable ML-based autofill predictions (8th matching strategy)
+- If installation fails, the app works fine with its standard 7 autofill strategies
+- Enable or disable ML predictions via checkbox in the app's Autofill modal
+- If not installed, ML autofill is automatically disabled
 
-#### Option B: Manual Installation
-
-If you prefer manual installation or automatic installation fails, see the [Installation](#installation) section for detailed instructions. Make sure the project is open in RStudio (you should see `EpicToCastor` in the top-right corner).
+**Note**: Package installation may take 5-10 minutes depending on your internet connection. Scripts invoked via `Rscript` auto-create writable user libraries and install missing packages when necessary.
 
 ### Step 4: First Launch
 
@@ -389,6 +371,116 @@ If you prefer manual installation or automatic installation fails, see the [Inst
    - Use **Auto-fill** (🪄 button) for intelligent suggestions
 
 5. Click **'Save'** to persist your mappings to the database
+
+---
+
+## Advanced Installation
+
+This section covers advanced installation scenarios.
+
+### For Radboudumc Managed Workstations (App-V / Werkplek 2.0)
+
+Radboudumc workstations use **App-V virtualization** for R and RStudio. Packages with compiled C/C++ code (DLLs) — such as `Rcpp`, `shiny`, `later`, and `httpuv` — **will not load correctly** when installed on OneDrive or other non-virtualized paths. They must be installed to the **network-based personal R library**.
+
+##### Automatic Setup (Recommended)
+
+The project's `.Rprofile` **automatically detects** the App-V environment and guides you through the setup on first launch:
+
+1. **Open the project** in RStudio by double-clicking `EpicToCastor.Rproj`
+2. The `.Rprofile` detects App-V and displays a setup prompt in the R console:
+   ```
+   ============================================================
+     RADBOUDUMC APP-V ENVIRONMENT DETECTED
+   ============================================================
+     R packages with DLLs (e.g. Shiny) only work from the
+     Radboudumc network library.
+
+     Enter your z-number (e.g. z123456):
+   ```
+3. **Enter your z-number** (e.g. `z123456`) and confirm it a second time
+4. The script automatically:
+   - Creates your personal network library folder if it doesn't exist
+   - Saves the configuration to `config/.net_lib_path` for future sessions
+   - Sets the library path so R loads packages from the network share
+
+On subsequent R sessions, the `.Rprofile` silently loads the saved path and displays a blue status banner:
+```
+  ┌────────────────────────────────────────────────────────┐
+  │  App-V environment detected                            │
+  │  R packages are loaded from the network library:       │
+  │  //umcn.nl/nas/APP/APPDATA/z123456/R/win-library/4.4   │
+  └────────────────────────────────────────────────────────┘
+```
+
+> **Note**: The network library folder (`\\umcn.nl\nas\APP\APPDATA\...`) is not browsable in Windows Explorer — it is only accessible programmatically. If you encounter permission errors during setup, contact the ServiceDesk via TopDesk.
+
+##### Install packages to the network library
+
+After the automatic setup has configured your library path, install the required packages. The network library path is already active, so you can use `.libPaths()[1]` to reference it:
+
+```r
+# Verify your network library is set (should show \\umcn.nl\... as the first path)
+.libPaths()
+
+# Disable lock files (recommended for network paths)
+options("install.lock" = FALSE)
+options(install.packages.compile.from.source = "never")
+
+# Use a CRAN snapshot matching R 4.4.x to ensure binary compatibility
+install.packages(c(
+  "Rcpp", "shiny", "data.table", "DT", "shinyjs", "shinydashboard",
+  "readxl", "readr", "processx", "jsonlite", "httr",
+  "DBI", "RSQLite", "digest", "uuid", "stringdist", "later",
+  "Matrix", "text2vec", "xgboost"
+), lib = .libPaths()[1], type = "binary",
+   repos = "https://packagemanager.posit.co/cran/2024-10-01")
+```
+
+> **Important**: Use the Posit Package Manager snapshot URL (`https://packagemanager.posit.co/cran/2024-10-01`) instead of the default CRAN mirror. This ensures you get binary packages built for **R 4.4.x**, avoiding version mismatches with the App-V R installation.
+
+##### Manual Setup (Alternative)
+
+If you prefer to configure the network library manually (or the automatic setup fails), add the following to the top of `.Rprofile` (replace `z123456` with your z-number):
+
+```r
+net_lib <- "//umcn.nl/nas/APP/APPDATA/z123456/R/win-library/4.4"
+if (dir.exists(net_lib)) {
+  .libPaths(c(net_lib, .libPaths()))
+}
+```
+
+Or create the directory manually:
+```r
+# Replace z123456 with your z-number
+system('powershell.exe -command "mkdir \\\\umcn.nl/nas/APP/APPDATA/z123456/R/win-library/4.4"')
+```
+
+##### How the automatic detection works
+
+The `.Rprofile` uses a two-phase approach:
+
+- **Phase 1** (during `.Rprofile` load): Detects App-V by checking if R's library paths contain `App-V` or `ProgramData\...\Root\VFS`. If a saved configuration exists in `config/.net_lib_path`, the network library is silently added to `.libPaths()`.
+- **Phase 2** (during `.First` function): If App-V was detected but no saved configuration exists, the user is prompted for their z-number with double confirmation (up to 3 attempts). The network library is created if needed and the path is saved for future sessions.
+
+##### Why is this necessary?
+
+App-V virtualizes R's file system. DLLs (compiled C/C++ code) only initialize correctly when loaded from paths that App-V recognizes as trusted: the virtualized system library or the designated network share (`\\umcn.nl\nas\APP\APPDATA\...`). Packages installed on OneDrive, `C:\temp`, or other arbitrary paths will appear to install successfully, but their DLLs will fail to register internal routines at load time, causing errors like:
+
+```
+Error: .onLoad failed in loadNamespace() for 'Rcpp', details:
+  call: new_dummyObject(.dummyInstancePointer)
+  error: object 'class__dummyInstance' not found
+```
+
+##### Troubleshooting
+
+- **Z-number prompt not appearing**: Ensure you opened the project via `EpicToCastor.Rproj` (not just a standalone R session). The `.Rprofile` in the project directory must be loaded.
+- **Setup prompt reappears each session**: Check that `config/.net_lib_path` was saved successfully. Verify write permissions to the `config/` directory.
+- **`Permission denied` errors**: Contact the ServiceDesk via TopDesk to have your personal library folder created or cleared.
+- **`install.lock` errors**: Run `options("install.lock" = FALSE)` before installing.
+- **Package built under wrong R version**: Use the Posit snapshot URL shown above to get packages matching R 4.4.x.
+- **Persistent DLL errors after reinstall**: Restart RStudio completely (close and reopen), then retry `library(shiny)`.
+- **Reset configuration**: Delete `config/.net_lib_path` and restart R to re-run the z-number setup.
 
 ---
 
@@ -554,6 +646,7 @@ The Shiny app is the primary interface for Epic2Castor, providing:
 - **Credential management** via integrated UI
 - **ETL execution** and upload helpers with progress monitoring
 - **File management** with validation and upload capabilities
+- **Study dashboard** with real-time inclusion, completeness, and biobank statistics
 
 ### Mapping workflow
 
@@ -720,6 +813,45 @@ if (!status$valid) recover_model_from_backup()
 - Manually check low-confidence suggestions (orange items)
 - Use **'Export CSV'** to save suggestions for review
 - Approved auto-fills build a reference dictionary for future runs
+
+### Study Dashboard
+
+The **Study Dashboard** provides a real-time overview of your Castor study, accessible via the **Dashboard** button (📊) in the app's top menu bar. All data is fetched directly from the Castor API.
+
+#### Dashboard Tabs
+
+**1. Patient Inclusion**
+- Total number of included (active) and archived patients
+- Cumulative inclusion curve showing patient enrollment over time
+- Monthly inclusion bar chart for trend analysis
+
+**2. Data Completeness**
+- Overall data completion percentage across all records
+- Per-form breakdown showing completion rates for each form (e.g., Medical History 42.5%, Symptoms 34.9%)
+- Per-record completion percentages to identify records needing attention
+- Per-field fill rates to spot consistently missing data points
+- Calculation fields are automatically excluded from completeness metrics
+
+**3. Biobank Samples**
+- Total sample count with unique patient count
+- Breakdown by sample type (e.g., Plasma EDTA, DNA stock)
+- Breakdown by sample status (e.g., Complete, Pending)
+- Per-patient sample table showing sample distribution
+
+#### How It Works
+
+The dashboard uses three Castor API endpoints:
+- **`/export/data`** — Bulk CSV export of all study data (long format: one row per field per record)
+- **`/export/structure`** — Field definitions for mapping Field IDs (UUIDs) to human-readable variable names
+- **`/record`** — Record list with metadata (creation date, status, archived flag)
+
+Data is automatically cached for 30 minutes in `db/dashboard_cache/` to minimize API calls. Click **Refresh Data** in the dashboard to force a fresh fetch.
+
+#### Requirements
+
+- Valid Castor API credentials configured in `config/APIConfig.json`
+- Active internet connection for API calls
+- No additional packages required beyond the base app dependencies
 
 ### Run the ETL
 

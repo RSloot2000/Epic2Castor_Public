@@ -532,6 +532,9 @@ source(epc_path("import_wizard_script"))
 IMPORT_CONFIGS <- get_all_import_types()
 cat(sprintf("[Startup] Import wizard loaded with %d import types\n", length(IMPORT_CONFIGS)))
 
+# Load dashboard module (patient inclusion, data completeness, biobank overview)
+source(file.path(epc_path("scripts_dir"), "dashboard.r"))
+
 # ============================================================================
 # DATABASE MANAGEMENT UTILITIES
 # ============================================================================
@@ -1157,6 +1160,12 @@ ui <- fluidPage(
                                       tags$li(actionLink("run_upload_script", "Castor upload", class = "menu-link"))
                               )
                           ),
+                          
+                          # ===== DASHBOARD BUTTON =====
+                          actionButton("open_dashboard", 
+                                       tags$span(icon("chart-bar"), "Dashboard"),
+                                       class = "btn btn-default menu-toggle",
+                                       style = "margin-left: 5px;"),
                           
                           # ===== HELP MENU =====
                           div(class = "dropdown menu-group",
@@ -10063,6 +10072,11 @@ server <- function(input, output, session) {
     # Re-render table with fresh data from database
     render_table(get_active_tab_data(), input$file)
   })
+  
+  # ===== DASHBOARD MODULE =====
+  # Initialize dashboard server logic (patient inclusion, data completeness, biobank)
+  dashboard_server(input, output, session)
+  
 } # End of server function
 
 # ============================================================================
