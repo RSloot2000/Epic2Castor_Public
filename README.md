@@ -327,7 +327,7 @@ install.packages(c(
 - Navigate to your study
 - Go to **Settings** → **API**
 - Copy the **Client ID** and generate a **Client Secret**
-- The **Study ID** is visible in your browser's URL bar
+- The **Study ID** is visible in your browser's URL bar or under the study settings
 
 ### Step 6: Refresh Castor Metadata
 
@@ -343,14 +343,20 @@ install.packages(c(
 
 ### Step 7: Load Input File
 
-1. Navigate to the **'Elements' tab** in the mapping section
-2. Click the **file browser icon** (📁) at the top to open the file manager
-3. In the modal dialog:
-   - Select **'Epic Export'** as file type
+1. Navigate to the **'Elements' tab** in the file select in the top left
+2. Click the **file** button at the top to open a dropdown
+3. Click **Manage input files**
+4. In the following modal dialog:
+   - Select the data type
    - Click **'Browse'** and select your Epic SmartForm export file (`.csv` or `.xlsx`)
-   - The app validates the file automatically
-   - Click **'Select & Close'** to load the file
-4. The dropdown options in your mapping tables will now be populated with values from your Epic export
+   - The relevant file type should be selected for you
+      > **Note** This feature is till a W.I.P. amd may select a wrong file type, please ensure the correct file type is selected by overriding when incorrect
+   - Map the headings from the file to the corresponding fields in the wizard
+      > Having the file open greatly helps with this step, templates can be saved to make the process easier in future
+   - Click **Transform data** to continue
+   - If everything looks correct click **Export to CSV**
+   - You can now close the wizard
+5. The dropdown options in your mapping tables will now be populated with values from your Epic export
 
 **You're now ready to create mappings!**
 
@@ -384,7 +390,7 @@ Radboudumc workstations use **App-V virtualization** for R and RStudio. Packages
 
 ##### Automatic Setup (Recommended)
 
-The project's `.Rprofile` **automatically detects** the App-V environment and guides you through the setup on first launch:
+The project's `.Rprofile` **automatically detects** the App-V environment and guides you through the setup on first launch, please follow the 5 steps below:
 
 1. **Open the project** in RStudio by double-clicking `EpicToCastor.Rproj`
 2. The `.Rprofile` detects App-V and displays a setup prompt in the R console:
@@ -414,19 +420,23 @@ On subsequent R sessions, the `.Rprofile` silently loads the saved path and disp
 
 > **Note**: The network library folder (`\\umcn.nl\nas\APP\APPDATA\...`) is not browsable in Windows Explorer — it is only accessible programmatically. If you encounter permission errors during setup, contact the ServiceDesk via TopDesk.
 
-##### Install packages to the network library
+5. Install packages to the network library
 
 After the automatic setup has configured your library path, install the required packages. The network library path is already active, so you can use `.libPaths()[1]` to reference it:
 
 ```r
-# Verify your network library is set (should show \\umcn.nl\... as the first path)
+# First verify your network library is set (should show \\umcn.nl\... as the first path)
 .libPaths()
+```
 
-# Disable lock files (recommended for network paths)
+```r
+# Then disable lock files
 options("install.lock" = FALSE)
 options(install.packages.compile.from.source = "never")
+```
 
-# Use a CRAN snapshot matching R 4.4.x to ensure binary compatibility
+```r
+# Last install packages using a CRAN snapshot matching R 4.4.x to ensure binary compatibility
 install.packages(c(
   "Rcpp", "shiny", "data.table", "DT", "shinyjs", "shinydashboard",
   "readxl", "readr", "processx", "jsonlite", "httr",

@@ -2658,10 +2658,17 @@ Shiny.addCustomMessageHandler("adjustScroller", function(message) {
     if ($table.length && $.fn.DataTable && $.fn.DataTable.isDataTable($table)) {
         const dt = $table.DataTable();
         if (dt.scroller) {
-            // Force Scroller to recalculate viewport and row positions
+            // Scroll to top first, then recalculate viewport
+            dt.scroller.toPosition(0);
             dt.scroller.measure();
             dt.draw(false); // Redraw without resetting paging
             
+            // Also reset the scroll container to the top
+            const $scrollBody = $table.closest('.dataTables_scrollBody');
+            if ($scrollBody.length) {
+                $scrollBody.scrollTop(0);
+            }
+
             // End tab switch timing if it was started
             // adjustScroller is called at the end of tab switches
             if (performanceMonitor.timers['tab_switch']) {

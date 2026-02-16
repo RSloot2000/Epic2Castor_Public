@@ -651,40 +651,67 @@ dashboard_get_study_fields <- function() {
 #'   - by_site: data.table with site_name, count
 #'   - by_month: data.table with month, count
 dashboard_compute_inclusion_stats <- function(records) {
+  empty_date <- data.table(date = as.Date(character(0)), count = integer(0), cumulative = integer(0))
+  empty_site <- data.table(site_name = character(0), active = integer(0), archived = integer(0), total = integer(0))
+  empty_month <- data.table(month = character(0), active = integer(0), archived = integer(0), total = integer(0))
+  
   if (is.null(records) || nrow(records) == 0) {
     return(list(
       total = 0, total_archived = 0,
-      by_date = data.table(date = as.Date(character(0)), count = integer(0), cumulative = integer(0)),
-      by_site = data.table(site_name = character(0), count = integer(0)),
-      by_month = data.table(month = character(0), count = integer(0))
+      by_date_active = empty_date,
+      by_date_archived = empty_date,
+      by_date = empty_date,
+      by_site = empty_site,
+      by_month = empty_month
     ))
   }
   
   active <- records[archived == FALSE]
+  arch <- records[archived == TRUE]
   
   # Total counts
   total_active <- nrow(active)
-  total_archived <- sum(records$archived, na.rm = TRUE)
+  total_archived <- nrow(arch)
   
-  # By date (cumulative inclusion curve)
-  by_date <- active[!is.na(created_date), .(count = .N), by = .(date = created_date)]
+  # By date - Active (cumulative inclusion curve)
+  by_date_active <- active[!is.na(created_date), .(count = .N), by = .(date = created_date)]
+  setorder(by_date_active, date)
+  by_date_active[, cumulative := cumsum(count)]
+  
+  # By date - Archived (cumulative)
+  by_date_archived <- arch[!is.na(created_date), .(count = .N), by = .(date = created_date)]
+  setorder(by_date_archived, date)
+  if (nrow(by_date_archived) > 0) {
+    by_date_archived[, cumulative := cumsum(count)]
+  }
+  
+  # By date - All combined (for backward compat)
+  by_date <- records[!is.na(created_date), .(count = .N), by = .(date = created_date)]
   setorder(by_date, date)
   by_date[, cumulative := cumsum(count)]
   
-  # By site
-  by_site <- active[, .(count = .N), by = .(site_name)]
+  # By site (with active/archived breakdown)
+  by_site <- records[, .(
+    active = sum(archived == FALSE),
+    archived = sum(archived == TRUE),
+    total = .N
+  ), by = .(site_name)]
   by_site[is.na(site_name), site_name := "Unknown"]
-  setorder(by_site, -count)
+  setorder(by_site, -total)
   
-  # By month
-  by_month <- active[!is.na(created_date), .(
-    count = .N
+  # By month (with active/archived breakdown)
+  by_month <- records[!is.na(created_date), .(
+    active = sum(archived == FALSE),
+    archived = sum(archived == TRUE),
+    total = .N
   ), by = .(month = format(created_date, "%Y-%m"))]
   setorder(by_month, month)
   
   list(
     total = total_active,
     total_archived = total_archived,
+    by_date_active = by_date_active,
+    by_date_archived = by_date_archived,
     by_date = by_date,
     by_site = by_site,
     by_month = by_month
@@ -765,7 +792,9 @@ dashboard_compute_completeness_stats <- function(data_export, study_fields) {
     vals <- unlist(.SD, use.names = FALSE)
     filled <- sum(!is.na(vals) & vals != "" & vals != "null", na.rm = TRUE)
     total <- length(vals)
-    .(pct_complete = if (total > 0) round(100 * filled / total, 1) else 0)
+    .(pct_complete = if (total > 0) round(100 * filled / total, 1) else 0,
+      n_missing = total - sum(!is.na(vals) & vals != "" & vals != "null", na.rm = TRUE),
+      total_fields = total)
   }, by = rec_col, .SDcols = data_cols]
   setnames(by_record, rec_col, "record_id")
   
@@ -876,6 +905,18 @@ dashboard_modal_ui <- function() {
     easyClose = TRUE,
     footer = modalButton("Close"),
     
+    # CSS for dashboard layout
+    tags$style(HTML("
+      .modal-body .row { overflow: hidden; }
+      .modal-body .col-sm-6, .modal-body .col-sm-12 { 
+        overflow: hidden;
+        box-sizing: border-box;
+      }
+      .modal-body .plotly { 
+        width: 100% !important; 
+      }
+    ")),
+    
     # Loading indicator
     div(id = "dashboard_loading",
         style = "text-align: center; padding: 20px; display: none;",
@@ -919,19 +960,31 @@ dashboard_modal_ui <- function() {
                 )
             ),
             
-            # Inclusion curve plot
+            # Inclusion curve plot (Active vs Archived over time)
             div(class = "row",
                 div(class = "col-sm-12",
                     tags$h4("Inclusion Over Time"),
-                    plotOutput("dash_inclusion_curve", height = "300px")
+                    plotly::plotlyOutput("dash_inclusion_curve", height = "300px", width = "100%")
+                )
+            ),
+            
+            # Monthly inclusion rate + Active vs Archived
+            div(class = "row", style = "margin-top: 20px;",
+                div(class = "col-sm-6",
+                    tags$h4("Monthly Inclusion Rate"),
+                    plotly::plotlyOutput("dash_monthly_rate", height = "300px", width = "100%")
+                ),
+                div(class = "col-sm-6",
+                    tags$h4("Active vs Archived"),
+                    plotly::plotlyOutput("dash_active_vs_archived", height = "300px", width = "100%")
                 )
             ),
             
             # Monthly breakdown table
             div(class = "row", style = "margin-top: 20px;",
                 div(class = "col-sm-12",
-                    tags$h4("Monthly Inclusion"),
-                    DT::DTOutput("dash_monthly_table", height = "200px")
+                    tags$h4("Monthly Inclusion Table"),
+                    DT::DTOutput("dash_monthly_table", height = "280px")
                 )
             )
         )
@@ -972,11 +1025,23 @@ dashboard_modal_ui <- function() {
             div(class = "row",
                 div(class = "col-sm-6",
                     tags$h4("Completeness by Form"),
-                    plotOutput("dash_completeness_by_form", height = "300px")
+                    plotly::plotlyOutput("dash_completeness_by_form", height = "300px", width = "100%")
                 ),
                 div(class = "col-sm-6",
                     tags$h4("Completeness per Record"),
-                    plotOutput("dash_completeness_histogram", height = "300px")
+                    plotly::plotlyOutput("dash_completeness_histogram", height = "300px", width = "100%")
+                )
+            ),
+            
+            # Completeness over time + Missing fields distribution
+            div(class = "row", style = "margin-top: 20px;",
+                div(class = "col-sm-6",
+                    tags$h4("Completeness by Record Creation Date"),
+                    plotly::plotlyOutput("dash_completeness_over_time", height = "300px", width = "100%")
+                ),
+                div(class = "col-sm-6",
+                    tags$h4("Missing Fields per Record"),
+                    plotly::plotlyOutput("dash_missing_fields_box", height = "300px", width = "100%")
                 )
             ),
             
@@ -1025,11 +1090,11 @@ dashboard_modal_ui <- function() {
             div(class = "row",
                 div(class = "col-sm-6",
                     tags$h4("Samples by Type"),
-                    plotOutput("dash_biobank_by_type", height = "300px")
+                    plotly::plotlyOutput("dash_biobank_by_type", height = "300px", width = "100%")
                 ),
                 div(class = "col-sm-6",
                     tags$h4("Samples by Status"),
-                    plotOutput("dash_biobank_by_status", height = "300px")
+                    plotly::plotlyOutput("dash_biobank_by_status", height = "300px", width = "100%")
                 )
             ),
             
@@ -1149,25 +1214,125 @@ dashboard_server <- function(input, output, session) {
     stats$total_archived
   })
   
-  # Inclusion curve (cumulative over time)
-  output$dash_inclusion_curve <- renderPlot({
+  # Inclusion curve (Active vs Archived cumulative over time)
+  output$dash_inclusion_curve <- plotly::renderPlotly({
     stats <- dashboard_data$inclusion_stats
-    if (is.null(stats) || nrow(stats$by_date) == 0) {
-      plot.new()
-      text(0.5, 0.5, "No inclusion data available", cex = 1.2, col = "gray")
-      return()
+    if (is.null(stats) || (nrow(stats$by_date_active) == 0 && nrow(stats$by_date_archived) == 0)) {
+      return(plotly::plot_ly() %>% 
+        plotly::layout(annotations = list(list(
+          text = "No inclusion data available", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
     }
     
-    dt <- stats$by_date
-    par(mar = c(4, 4, 2, 1))
-    plot(dt$date, dt$cumulative, type = "l", lwd = 2, col = "#3498db",
-         xlab = "Date", ylab = "Cumulative Patients",
-         main = "", las = 1, bty = "l")
-    points(dt$date, dt$cumulative, pch = 19, cex = 0.5, col = "#3498db")
-    grid(col = "#eeeeee", lty = 1)
+    p <- plotly::plot_ly()
     
-    # Add target line if configured (optional)
-    abline(h = nrow(dashboard_data$records), lty = 2, col = "#2ecc71")
+    # Active patients line
+    if (nrow(stats$by_date_active) > 0) {
+      p <- p %>% plotly::add_trace(
+        data = stats$by_date_active,
+        x = ~date, y = ~cumulative, type = "scatter", mode = "lines+markers",
+        line = list(color = "#2ecc71", width = 2),
+        marker = list(color = "#2ecc71", size = 4),
+        name = "Active",
+        hovertemplate = "Date: %{x}<br>Active: %{y}<extra></extra>"
+      )
+    }
+    
+    # Archived patients line
+    if (nrow(stats$by_date_archived) > 0) {
+      p <- p %>% plotly::add_trace(
+        data = stats$by_date_archived,
+        x = ~date, y = ~cumulative, type = "scatter", mode = "lines+markers",
+        line = list(color = "#e74c3c", width = 2, dash = "dot"),
+        marker = list(color = "#e74c3c", size = 4),
+        name = "Archived",
+        hovertemplate = "Date: %{x}<br>Archived: %{y}<extra></extra>"
+      )
+    }
+    
+    p <- p %>%
+      plotly::layout(
+        xaxis = list(title = ""),
+        yaxis = list(title = "Cumulative Patients"),
+        showlegend = TRUE,
+        legend = list(orientation = "h", y = -0.2, x = 0.5, xanchor = "center"),
+        margin = list(l = 50, r = 20, t = 10, b = 70)
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+    
+    p
+  })
+  
+  # Monthly inclusion rate (grouped bar chart: active vs archived per month)
+  output$dash_monthly_rate <- plotly::renderPlotly({
+    stats <- dashboard_data$inclusion_stats
+    if (is.null(stats) || nrow(stats$by_month) == 0) {
+      return(plotly::plot_ly() %>% 
+        plotly::layout(annotations = list(list(
+          text = "No monthly data", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
+    }
+    
+    dt <- stats$by_month
+    
+    p <- plotly::plot_ly(dt, x = ~month) %>%
+      plotly::add_trace(y = ~active, type = "bar", name = "Active",
+                        marker = list(color = "#2ecc71"),
+                        hovertemplate = "%{x}<br>Active: %{y}<extra></extra>") %>%
+      plotly::add_trace(y = ~archived, type = "bar", name = "Archived",
+                        marker = list(color = "#e74c3c"),
+                        hovertemplate = "%{x}<br>Archived: %{y}<extra></extra>") %>%
+      plotly::layout(
+        barmode = "stack",
+        xaxis = list(title = "", tickangle = -45),
+        yaxis = list(title = "New Patients"),
+        showlegend = TRUE,
+        legend = list(orientation = "h", y = -0.35, x = 0.5, xanchor = "center"),
+        margin = list(l = 50, r = 20, t = 10, b = 90)
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+    
+    p
+  })
+  
+  # Active vs Archived donut chart
+  output$dash_active_vs_archived <- plotly::renderPlotly({
+    stats <- dashboard_data$inclusion_stats
+    if (is.null(stats) || (stats$total == 0 && stats$total_archived == 0)) {
+      return(plotly::plot_ly() %>% 
+        plotly::layout(annotations = list(list(
+          text = "No data", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
+    }
+    
+    dt <- data.table(
+      status = c("Active", "Archived"),
+      count = c(stats$total, stats$total_archived)
+    )
+    
+    p <- plotly::plot_ly(dt, labels = ~status, values = ~count, type = "pie",
+                         marker = list(
+                           colors = c("#2ecc71", "#e74c3c"),
+                           line = list(color = "white", width = 2)
+                         ),
+                         textinfo = "label+value+percent",
+                         textposition = "inside",
+                         hovertemplate = "%{label}<br>Count: %{value}<br>%{percent}<extra></extra>",
+                         hole = 0.4) %>%
+      plotly::layout(
+        margin = list(l = 20, r = 20, t = 10, b = 30),
+        showlegend = TRUE,
+        legend = list(orientation = "h", y = -0.1, x = 0.5, xanchor = "center")
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+    
+    p
   })
   
   # Monthly table
@@ -1177,7 +1342,7 @@ dashboard_server <- function(input, output, session) {
     
     DT::datatable(
       stats$by_month,
-      colnames = c("Month", "Count"),
+      colnames = c("Month", "Active", "Archived", "Total"),
       options = list(
         pageLength = 6, dom = "tp", ordering = TRUE,
         columnDefs = list(list(className = "dt-center", targets = "_all"))
@@ -1209,42 +1374,182 @@ dashboard_server <- function(input, output, session) {
   })
   
   # Completeness by form (horizontal bar chart)
-  output$dash_completeness_by_form <- renderPlot({
+  output$dash_completeness_by_form <- plotly::renderPlotly({
     stats <- dashboard_data$completeness_stats
     if (is.null(stats) || nrow(stats$by_form) == 0) {
-      plot.new()
-      text(0.5, 0.5, "No form data", cex = 1.2, col = "gray")
-      return()
+      return(plotly::plot_ly() %>% 
+        plotly::layout(annotations = list(list(
+          text = "No form data", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
     }
     
     dt <- stats$by_form
     colors <- ifelse(dt$avg_pct >= 80, "#2ecc71",
               ifelse(dt$avg_pct >= 50, "#f39c12", "#e74c3c"))
     
-    par(mar = c(4, 12, 2, 2))
-    bp <- barplot(dt$avg_pct, names.arg = dt$form_name, horiz = TRUE,
-                  col = colors, border = NA, las = 1,
-                  xlab = "Completeness (%)", xlim = c(0, 100), main = "")
-    text(dt$avg_pct + 2, bp, paste0(dt$avg_pct, "%"), adj = 0, cex = 0.8)
-    abline(v = c(50, 80), lty = 2, col = "#cccccc")
+    # Order by percentage for better readability
+    dt <- dt[order(avg_pct)]
+    colors <- ifelse(dt$avg_pct >= 80, "#2ecc71",
+              ifelse(dt$avg_pct >= 50, "#f39c12", "#e74c3c"))
+    
+    p <- plotly::plot_ly(dt, y = ~form_name, x = ~avg_pct, type = "bar",
+                         orientation = "h",
+                         marker = list(color = colors),
+                         text = ~paste0(avg_pct, "%"),
+                         textposition = "outside",
+                         hovertemplate = "%{y}<br>Completeness: %{x}%<extra></extra>") %>%
+      plotly::layout(
+        xaxis = list(title = "Completeness (%)", range = c(0, 110)),
+        yaxis = list(title = "", categoryorder = "array", categoryarray = dt$form_name,
+                     ticksuffix = "  "),
+        margin = list(l = 130, r = 30, t = 10, b = 50),
+        shapes = list(
+          list(type = "line", x0 = 50, x1 = 50, y0 = -0.5, y1 = nrow(dt) - 0.5,
+               line = list(color = "#cccccc", dash = "dash", width = 1)),
+          list(type = "line", x0 = 80, x1 = 80, y0 = -0.5, y1 = nrow(dt) - 0.5,
+               line = list(color = "#cccccc", dash = "dash", width = 1))
+        )
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+    
+    p
   })
   
   # Completeness histogram (distribution across records)
-  output$dash_completeness_histogram <- renderPlot({
+  output$dash_completeness_histogram <- plotly::renderPlotly({
     stats <- dashboard_data$completeness_stats
     if (is.null(stats) || nrow(stats$by_record) == 0) {
-      plot.new()
-      text(0.5, 0.5, "No record data", cex = 1.2, col = "gray")
-      return()
+      return(plotly::plot_ly() %>% 
+        plotly::layout(annotations = list(list(
+          text = "No record data", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
     }
     
-    par(mar = c(4, 4, 2, 1))
-    hist(stats$by_record$pct_complete, breaks = 20,
-         col = "#3498db", border = "white",
-         xlab = "Completeness (%)", ylab = "Number of Records",
-         main = "", las = 1, xlim = c(0, 100))
-    abline(v = mean(stats$by_record$pct_complete, na.rm = TRUE),
-           lty = 2, col = "#e74c3c", lwd = 2)
+    mean_pct <- mean(stats$by_record$pct_complete, na.rm = TRUE)
+    
+    p <- plotly::plot_ly(x = ~stats$by_record$pct_complete, type = "histogram",
+                         nbinsx = 20,
+                         marker = list(color = "#3498db", line = list(color = "white", width = 1)),
+                         hovertemplate = "Range: %{x}<br>Records: %{y}<extra></extra>") %>%
+      plotly::layout(
+        xaxis = list(title = "Completeness (%)", range = c(0, 100)),
+        yaxis = list(title = "Number of Records", standoff = 15, ticksuffix = "  "),
+        margin = list(l = 60, r = 20, t = 20, b = 50),
+        shapes = list(list(
+          type = "line", x0 = mean_pct, x1 = mean_pct, y0 = 0, y1 = 0.9,
+          yref = "paper",
+          line = list(color = "#e74c3c", width = 2, dash = "dash")
+        )),
+        annotations = list(list(
+          x = mean_pct, y = 0.9, yref = "paper",
+          text = paste0("Mean: ", round(mean_pct, 1), "%"),
+          showarrow = FALSE, yanchor = "bottom",
+          font = list(color = "#e74c3c", size = 11)
+        ))
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+    
+    p
+  })
+  
+  # Completeness by record creation date (scatter + trend)
+  output$dash_completeness_over_time <- plotly::renderPlotly({
+    stats <- dashboard_data$completeness_stats
+    records <- dashboard_data$records
+    if (is.null(stats) || nrow(stats$by_record) == 0 || is.null(records) || nrow(records) == 0) {
+      return(plotly::plot_ly() %>%
+        plotly::layout(annotations = list(list(
+          text = "No data", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
+    }
+    
+    # Join with record creation dates
+    rec_dates <- records[!is.na(created_date), .(record_id = as.character(record_id), created_date)]
+    dt <- merge(stats$by_record, rec_dates, by = "record_id", all.x = FALSE)
+    
+    if (nrow(dt) == 0) {
+      return(plotly::plot_ly() %>%
+        plotly::layout(annotations = list(list(
+          text = "No date data available", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
+    }
+    
+    setorder(dt, created_date)
+    
+    # Compute rolling average (window of 5 records or less)
+    window <- min(5, nrow(dt))
+    dt[, rolling_avg := frollmean(pct_complete, n = window, align = "center", na.rm = TRUE)]
+    
+    p <- plotly::plot_ly(dt) %>%
+      plotly::add_trace(x = ~created_date, y = ~pct_complete, type = "scatter", mode = "markers",
+                        marker = list(color = "#3498db", size = 5, opacity = 0.5),
+                        name = "Record",
+                        hovertemplate = "ID: %{text}<br>Date: %{x}<br>Complete: %{y}%<extra></extra>",
+                        text = ~record_id) %>%
+      plotly::add_trace(x = ~created_date, y = ~rolling_avg, type = "scatter", mode = "lines",
+                        line = list(color = "#e74c3c", width = 2),
+                        name = "Trend",
+                        hovertemplate = "Date: %{x}<br>Avg: %{y:.1f}%<extra></extra>") %>%
+      plotly::layout(
+        xaxis = list(title = ""),
+        yaxis = list(title = "Completeness (%)", range = c(0, 105), standoff = 15),
+        showlegend = TRUE,
+        legend = list(orientation = "h", y = -0.15, x = 0.5, xanchor = "center"),
+        margin = list(l = 60, r = 20, t = 10, b = 60)
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+    
+    p
+  })
+  
+  # Missing fields per record (box plot)
+  output$dash_missing_fields_box <- plotly::renderPlotly({
+    stats <- dashboard_data$completeness_stats
+    if (is.null(stats) || nrow(stats$by_record) == 0) {
+      return(plotly::plot_ly() %>%
+        plotly::layout(annotations = list(list(
+          text = "No data", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
+    }
+    
+    dt <- stats$by_record
+    median_missing <- median(dt$n_missing, na.rm = TRUE)
+    mean_missing <- round(mean(dt$n_missing, na.rm = TRUE), 1)
+    
+    p <- plotly::plot_ly() %>%
+      plotly::add_trace(y = ~dt$n_missing, type = "box",
+                        boxpoints = "outliers",
+                        marker = list(color = "#3498db", size = 4),
+                        line = list(color = "#2c3e50"),
+                        fillcolor = "rgba(52, 152, 219, 0.3)",
+                        name = "Missing Fields",
+                        hovertemplate = "Missing: %{y}<extra></extra>") %>%
+      plotly::layout(
+        xaxis = list(title = "", showticklabels = FALSE),
+        yaxis = list(title = "Missing Fields", standoff = 15),
+        margin = list(l = 60, r = 20, t = 10, b = 30),
+        showlegend = FALSE,
+        annotations = list(list(
+          x = 0.95, y = 0.95, xref = "paper", yref = "paper",
+          text = paste0("Median: ", median_missing, "<br>Mean: ", mean_missing),
+          showarrow = FALSE, xanchor = "right", yanchor = "top",
+          font = list(size = 11, color = "#2c3e50"),
+          bgcolor = "rgba(255,255,255,0.8)", bordercolor = "#ccc", borderwidth = 1
+        ))
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+    
+    p
   })
   
   # Least complete fields table
@@ -1293,37 +1598,64 @@ dashboard_server <- function(input, output, session) {
   })
   
   # Samples by type (bar chart)
-  output$dash_biobank_by_type <- renderPlot({
+  output$dash_biobank_by_type <- plotly::renderPlotly({
     stats <- dashboard_data$biobank_stats
     if (is.null(stats) || nrow(stats$by_type) == 0) {
-      plot.new()
-      text(0.5, 0.5, "No biobank data", cex = 1.2, col = "gray")
-      return()
+      return(plotly::plot_ly() %>% 
+        plotly::layout(annotations = list(list(
+          text = "No biobank data", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
     }
     
     dt <- stats$by_type
-    colors <- rainbow(nrow(dt), s = 0.7, v = 0.8)
-    par(mar = c(4, 8, 2, 1))
-    barplot(dt$count, names.arg = dt$sample_type, horiz = TRUE,
-            col = colors, border = NA, las = 1,
-            xlab = "Count", main = "")
+    colors <- substr(rainbow(nrow(dt), s = 0.7, v = 0.8), 1, 7)
+    
+    p <- plotly::plot_ly(dt, y = ~sample_type, x = ~count, type = "bar",
+                         orientation = "h",
+                         marker = list(color = colors),
+                         text = ~count, textposition = "outside",
+                         hovertemplate = "%{y}<br>Count: %{x}<extra></extra>") %>%
+      plotly::layout(
+        xaxis = list(title = "Count"),
+        yaxis = list(title = "", categoryorder = "total ascending", ticksuffix = "  "),
+        margin = list(l = 130, r = 30, t = 10, b = 50)
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+    
+    p
   })
   
-  # Samples by status (pie chart)
-  output$dash_biobank_by_status <- renderPlot({
+  # Samples by status (pie/donut chart)
+  output$dash_biobank_by_status <- plotly::renderPlotly({
     stats <- dashboard_data$biobank_stats
     if (is.null(stats) || nrow(stats$by_status) == 0) {
-      plot.new()
-      text(0.5, 0.5, "No status data", cex = 1.2, col = "gray")
-      return()
+      return(plotly::plot_ly() %>% 
+        plotly::layout(annotations = list(list(
+          text = "No status data", showarrow = FALSE,
+          xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+          font = list(size = 16, color = "gray")
+        ))))
     }
     
     dt <- stats$by_status
     colors <- c("#2ecc71", "#f39c12", "#e74c3c", "#3498db", "#9b59b6")[seq_len(nrow(dt))]
-    labels <- paste0(dt$status, "\n(", dt$count, ")")
     
-    par(mar = c(1, 1, 2, 1))
-    pie(dt$count, labels = labels, col = colors, border = "white", main = "")
+    p <- plotly::plot_ly(dt, labels = ~status, values = ~count, type = "pie",
+                         marker = list(colors = colors, line = list(color = "white", width = 2)),
+                         textinfo = "label+percent",
+                         textposition = "inside",
+                         hovertemplate = "%{label}<br>Count: %{value}<br>%{percent}<extra></extra>",
+                         hole = 0.3) %>%
+      plotly::layout(
+        margin = list(l = 20, r = 20, t = 10, b = 10),
+        showlegend = TRUE,
+        legend = list(orientation = "h", y = -0.1, x = 0.5, xanchor = "center")
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+    
+    p
   })
   
   # Per-patient table

@@ -3191,7 +3191,7 @@ server <- function(input, output, session) {
     # Render data from new tab using proxy mode for fast update
     active_data <- get_active_tab_data()
     if (!is.null(active_data)) {
-      render_table(active_data, input$file, mode = "proxy")
+      render_table(active_data, input$file, mode = "proxy", resetPaging = TRUE)
       
       # Adjust Scroller after tab switch to fix viewport and row positions
       session$sendCustomMessage("adjustScroller", list())
@@ -7005,8 +7005,9 @@ server <- function(input, output, session) {
   # @param data data.table to display
   # @param file Table name ("elements", "waarde_checkboxes", "waarde_radiobuttons", etc.)
   # @param mode Rendering mode: "auto" (auto-detect), "full" (complete re-render), "proxy" (update existing)
+  # @param resetPaging Logical - if TRUE, reset scroll/paging to top (used for tab switches)
   # @return NULL (side effect: updates output$table)
-  render_table <- function(data, file, mode = c("auto", "full", "proxy")) {
+  render_table <- function(data, file, mode = c("auto", "full", "proxy"), resetPaging = FALSE) {
     mode <- match.arg(mode)
     
     # Auto-detect rendering mode based on table state
@@ -7522,7 +7523,7 @@ server <- function(input, output, session) {
       replaceData(
         proxy,
         as.data.frame(display_data, stringsAsFactors = FALSE),
-        resetPaging = FALSE,
+        resetPaging = resetPaging,
         clearSelection = "none",
         rownames = FALSE
       )
@@ -9040,6 +9041,22 @@ server <- function(input, output, session) {
   # Open the import wizard when user clicks "Manage input files"
   
   observeEvent(input$select_epic_file, {
+    # Reset all wizard state so it opens clean every time
+    wizard_rv$file_path <- NULL
+    wizard_rv$file_name <- NULL
+    wizard_rv$detection_result <- NULL
+    wizard_rv$mapping_df <- NULL
+    wizard_rv$selected_sheet <- NULL
+    wizard_rv$selected_sheets <- NULL
+    wizard_rv$available_sheets <- NULL
+    wizard_rv$template_refresh <- 0
+    wizard_rv$show_preview <- FALSE
+    wizard_rv$transformation_result <- NULL
+    wizard_rv$export_result <- NULL
+
+    # Reset the fileInput so no previous file is shown
+    shinyjs::reset("wizard_file_upload")
+
     showModalSafe(modalDialog(
       title = "Data Import Wizard - Multi-Step Data Mapping",
       tagList(
@@ -9204,6 +9221,14 @@ server <- function(input, output, session) {
     file_info <- input$wizard_file_upload
     wizard_rv$file_path <- file_info$datapath
     wizard_rv$file_name <- file_info$name
+
+    # Reset wizard state so only Step 1 is visible when a new file is loaded
+    wizard_rv$detection_result <- NULL
+    wizard_rv$mapping_df <- NULL
+    wizard_rv$show_preview <- FALSE
+    wizard_rv$transformation_result <- NULL
+    wizard_rv$export_result <- NULL
+    shinyjs::enable("wizard_process_file")
 
     # Capture Excel sheets for optional selection
     ext <- tolower(tools::file_ext(wizard_rv$file_path))
@@ -9900,12 +9925,6 @@ server <- function(input, output, session) {
     wizard_rv$export_result <- res
 
     if (isTRUE(res$success)) {
-      showNotification(
-        paste(res$message, "Rows:", res$rows, "| Columns:", res$columns),
-        type = "message",
-        duration = 8
-      )
-      
       # Reload option lists to refresh dropdown options with new file data
       cat("[Import Wizard] Reloading option lists after successful export...\n")
       tryCatch({
@@ -9948,16 +9967,22 @@ server <- function(input, output, session) {
 
     if (isTRUE(res$success)) {
       div(
-        style = "margin-top: 10px; padding: 10px; background-color: #d4edda; border-radius: 5px;",
-        p(style = "margin: 0; color: #155724;",
+        style = "margin-top: 15px; padding: 15px; background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 5px;",
+        h4(style = "margin-top: 0; color: #155724;",
           icon("check-circle"),
-          strong(" Export successful!"),
-          br(),
-          tags$small(
-            "File:", if (!is.null(res$path)) tags$code(basename(res$path)) else "",
-            if (!is.null(res$rows)) tags$br(),
-            if (!is.null(res$rows)) paste("Rows:", res$rows, "| Columns:", res$columns)
-          )
+          " Export Successful!"
+        ),
+        tags$ul(style = "color: #155724; margin-bottom: 10px;",
+          tags$li(tags$strong("File: "), tags$code(if (!is.null(res$path)) basename(res$path) else "")),
+          if (!is.null(res$rows)) tags$li(tags$strong("Rows: "), res$rows),
+          if (!is.null(res$columns)) tags$li(tags$strong("Columns: "), res$columns)
+        ),
+        hr(style = "border-color: #c3e6cb;"),
+        p(style = "color: #155724; margin-bottom: 0;",
+          icon("info-circle"),
+          " You can now close the wizard using the ",
+          tags$strong("Close"),
+          " button."
         )
       )
     } else {
