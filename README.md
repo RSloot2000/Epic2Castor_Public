@@ -3,19 +3,22 @@
 Convert Epic SmartForm exports into Castor EDC import files. The toolkit offers an ETL pipeline and a Shiny UI to manage mappings, retrieve Castor metadata, transform data, and generate Castor-ready CSV and JSON payloads.
 
 ## Team
-Supervisor:
-  - [A. van Laarhoven](https://github.com/ArjanvL)
 
-Developers:
-  Lead:
-    - [R. Sloot](https://github.com/RSloot2000)
-  Other developers/advisors:
-    - [W. Peeters](https://github.com/wouterpeeters)
-    - [R. Elbers](https://github.com/relbersradboudumc)
-    - V. Aukes
+**Supervisor:**
+- [A. van Laarhoven](https://github.com/ArjanvL)
 
-Funding:
-  - [ZonMw](https://www.zonmw.nl/en), a clinical fellowship to A. van Laarhoven (09032212110006)
+**Developers:**
+
+*Lead:*
+- [R. Sloot](https://github.com/RSloot2000)
+
+*Other developers/advisors:*
+- [W. Peeters](https://github.com/wouterpeeters)
+- [R. Elbers](https://github.com/relbersradboudumc)
+- V. Aukes
+
+**Funding:**
+- [ZonMw](https://www.zonmw.nl/en), a clinical fellowship to A. van Laarhoven (09032212110006)
 
 ---
 
