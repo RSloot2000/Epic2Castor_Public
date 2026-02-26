@@ -2,15 +2,17 @@
 
 Convert Epic SmartForm exports into Castor EDC import files. The toolkit offers an ETL pipeline and a Shiny UI to manage mappings, retrieve Castor metadata, transform data, and generate Castor-ready CSV and JSON payloads.
 
-# Team
+## Team
 Supervisor:
   - [A. van Laarhoven](https://github.com/ArjanvL)
 
 Developers:
-  - [R. Sloot](https://github.com/RSloot2000)
-  - [W. Peeters](https://github.com/wouterpeeters)
-  - [R. Elbers](https://github.com/relbersradboudumc)
-  - V. Aukes
+  Lead:
+    - [R. Sloot](https://github.com/RSloot2000)
+  Other developers/advisors:
+    - [W. Peeters](https://github.com/wouterpeeters)
+    - [R. Elbers](https://github.com/relbersradboudumc)
+    - V. Aukes
 
 Funding:
   - [ZonMw](https://www.zonmw.nl/en), a clinical fellowship to A. van Laarhoven (09032212110006)
@@ -40,14 +42,17 @@ Funding:
   - [Path Configuration](#path-configuration)
   - [Medical Terms Dictionary](#medical-terms-dictionary)
   - [ML Model Configuration](#ml-model-configuration-optional)
-- [Usage](#usage)
-  - [Run the Shiny app](#run-the-shiny-app)
-  - [Mapping workflow](#mapping-workflow)
+- [User Guide](#user-guide)
+  - [1. Starting the App](#1-starting-the-app)
+  - [2. Configuring Credentials](#2-configuring-credentials)
+  - [3. Refreshing Castor Metadata](#3-refreshing-castor-metadata)
+  - [4. Loading Input Files](#4-loading-input-files)
+  - [5. Creating Mappings](#5-creating-mappings)
+  - [6. Auto-fill EPIC Values](#6-auto-fill-epic-values)
+  - [7. Running the ETL Pipeline](#7-running-the-etl-pipeline)
+  - [8. Exporting to Castor](#8-exporting-to-castor)
+  - [9. Monitoring with the Study Dashboard](#9-monitoring-with-the-study-dashboard)
   - [Keyboard Shortcuts](#keyboard-shortcuts)
-  - [Auto-fill EPIC values](#auto-fill-epic-values)
-  - [Study Dashboard](#study-dashboard)
-  - [Run the ETL](#run-the-etl)
-  - [Generate Castor upload payloads](#generate-castor-upload-payloads)
 - [Troubleshooting](#troubleshooting)
 - [Data flow](#data-flow)
 - [Logging & status tracking](#logging--status-tracking)
@@ -224,7 +229,8 @@ Epic2Castor combines mapping definitions, Castor metadata, and Epic source files
     ├── appCSS.css
     ├── appJS.js
     ├── colResizable-1.6.js             # Column resizing library
-    ├── select2.min.css                 # Select2 dropdown styling    ├── select2.min.js                  # Select2 dropdown library
+    ├── select2.min.css                 # Select2 dropdown styling
+    ├── select2.min.js                  # Select2 dropdown library
     └── img/
         └── logo.png
  
@@ -350,7 +356,7 @@ install.packages(c(
    - Select the data type
    - Click **'Browse'** and select your Epic SmartForm export file (`.csv` or `.xlsx`)
    - The relevant file type should be selected for you
-      > **Note** This feature is till a W.I.P. amd may select a wrong file type, please ensure the correct file type is selected by overriding when incorrect
+      > **Note**: This feature is still a W.I.P. and may select a wrong file type, please ensure the correct file type is selected by overriding when incorrect
    - Map the headings from the file to the corresponding fields in the wizard
       > Having the file open greatly helps with this step, templates can be saved to make the process easier in future
    - Click **Transform data** to continue
@@ -498,46 +504,17 @@ Error: .onLoad failed in loadNamespace() for 'Rcpp', details:
 
 ### First Time Setup
 
-When you run the app for the first time, it will automatically:
-
-1. **Create required directories** (`config/`, `db/`, `castor_meta/`, etc.)
-2. **Generate a template `APIConfig.json`** with empty credential fields
-3. **Create placeholder metadata files** that will be populated once credentials are configured
-
-You'll see console messages like:
-```
-[Init] Checking required directories and files...
-[Init] Created APIConfig.json template at: config/APIConfig.json
-[Init] Please configure your Castor API credentials in this file.
-[Init] Initialization complete.
-[Startup] API credentials not configured yet; using existing Castor metadata files.
-```
-
-The app will start with limited functionality until you configure the API credentials (see next section).
+On first launch the app automatically creates all required directories (`config/`, `db/`, `castor_meta/`, etc.), generates a template `APIConfig.json`, and populates placeholder metadata files. See [Step 4: First Launch](#step-4-first-launch) and [1. Starting the App](#1-starting-the-app) for a full walkthrough.
 
 ### API Configuration
 
 **Castor API credentials** are read from [`config/APIConfig.json`](config/APIConfig.json).
 
-#### Method 1: Using the App UI (Recommended)
+#### Using the App UI (Recommended)
 
-The easiest way to configure credentials is through the app interface:
+The easiest way to configure credentials is through the app's **'Castor' → 'Update credentials'** menu. See [2. Configuring Credentials](#2-configuring-credentials) in the User Guide for a step-by-step walkthrough.
 
-1. **Start the app** - it will show a warning notification about missing credentials
-2. **Click the 'Castor' menu** at the top of the app
-3. **Select 'Update credentials'**
-4. **Fill in your credentials** in the modal dialog:
-   - Client ID
-   - Client Secret
-   - Study ID
-   - DeepL API Key (optional, for better translations)
-5. **Click 'Save'**
-6. **Refresh metadata**: Click 'Castor' → 'Refresh metadata'
-7. **Done!** Your app is now fully configured
-
-The app includes helpful tooltips (click the ⓘ icons) explaining where to find each credential.
-
-#### Method 2: Manual Configuration
+#### Manual Configuration
 
 Alternatively, you can edit the configuration file directly:
 
@@ -563,14 +540,11 @@ Alternatively, you can edit the configuration file directly:
 4. Copy the **Client ID** and generate a **Client Secret**
 5. The **Study ID** is in your study's URL
 
-⚠️ **IMPORTANT**: This file contains sensitive credentials and is excluded from version control via [`.gitignore`](.gitignore). Never commit actual credentials!
+⚠️ **IMPORTANT**: This file contains sensitive credentials and should never be uploaded!
 
 #### Refreshing Metadata
 
-After configuring credentials:
-- Use **'Castor' → 'Refresh metadata'** in the app to update study data without restarting
-- The app will show a progress dialog and notify you when the refresh is complete
-- Metadata is automatically cached and refreshed only when needed
+Use **'Castor' → 'Refresh metadata'** in the app to update study data without restarting. Metadata is cached and only refreshed when needed. See [3. Refreshing Castor Metadata](#3-refreshing-castor-metadata) in the User Guide for details.
 
 ### Path Configuration
 
@@ -638,14 +612,19 @@ retrain_model()
 
 ---
 
-## Usage
+## User Guide
 
-### Run the Shiny app
+This section walks you through the complete Epic2Castor workflow, from launching the app to uploading data to Castor EDC. For initial installation and setup, see the [Quick Start Guide](#quick-start-guide).
+
+### 1. Starting the App
 
 ```r
 shiny::runApp(".")
 # or open App.r in RStudio and click "Run App"
+# or press Ctrl+Shift+Enter (Windows/Linux) / Cmd+Shift+Return (Mac)
 ```
+
+On first launch, the app automatically creates required directories (`config/`, `db/`, `castor_meta/`, etc.), generates placeholder mapping files, and creates a template `APIConfig.json`. You'll see a warning about missing API credentials — configure them in the next step.
 
 The Shiny app is the primary interface for Epic2Castor, providing:
 
@@ -658,30 +637,134 @@ The Shiny app is the primary interface for Epic2Castor, providing:
 - **File management** with validation and upload capabilities
 - **Study dashboard** with real-time inclusion, completeness, and biobank statistics
 
-### Mapping workflow
+### 2. Configuring Credentials
+
+Before using the app's full functionality, configure your Castor API credentials:
+
+1. Click the **'Castor' menu** at the top of the app
+2. Select **'Update credentials'**
+3. Fill in:
+   - **Client ID**: From Castor EDC → Settings → API
+   - **Client Secret**: Generate one in Castor EDC → Settings → API
+   - **Study ID**: Found in your study's URL (e.g., `ABC123DEF456`)
+   - **DeepL API Key** (optional): For improved medical term translations
+4. Click **'Save'**
+
+**Where to find Castor credentials:** Log in to [Castor EDC](https://data.castoredc.com) → navigate to your study → **Settings** → **API**. Copy the Client ID, generate a Client Secret, and note the Study ID from your study's URL.
+
+> Alternatively, edit [`config/APIConfig.json`](config/APIConfig.json) directly. See [API Configuration](#api-configuration) for details.
+
+### 3. Refreshing Castor Metadata
+
+After configuring credentials, fetch your study's field definitions:
+
+1. Click **'Castor'** → **'Refresh metadata'**
+2. Wait for the progress dialog (30–60 seconds)
+3. The app downloads:
+   - Field options (all dropdown, radio, and checkbox values)
+   - Study variable list (all fields in your study)
+   - Possible values for mapping dropdowns
+4. A success notification appears when complete
+
+**This step is crucial** — it populates the dropdown options you need for creating mappings.
+
+> Metadata is cached and only re-fetched when needed. Use **'Castor' → 'Refresh metadata'** at any time to update after changes in Castor EDC.
+
+### 4. Loading Input Files
+
+Use the **Import Wizard** to load your Epic export files:
+
+1. Navigate to the **'Elements' tab** in the table selector (top left)
+2. Click the **file button** (📁) → **'Manage input files'**
+3. In the Import Wizard modal, follow the steps below:
+
+#### 4a. Select Import Type
+
+Choose the type of data you're importing:
+
+- **EPIC Export (Baseline)**: Patient baseline data in Element-Value format
+- **EPIC Export (Follow-up)**: Follow-up data in Element-Value format
+- **Biobank Data**: Laboratory/biobank sample data
+- **Custom Data**: Generic data with custom column mapping
+
+Each type has predefined column requirements and validation rules.
+
+#### 4b. Upload and Detect File
+
+- Click **'Browse'** to select your file (CSV, Excel, or TSV)
+- The wizard automatically detects format, encoding, and column structure
+- For Excel files with multiple sheets: select the target sheet from the dropdown
+- Optionally load a saved template to auto-populate mappings
+
+#### 4c. Map Columns
+
+- The interactive mapping table shows required columns (marked with red asterisk *), detected source columns, sample data, and validation status
+- Map each required column using dropdowns, or enter custom fixed values for constants
+- Review sample data previews to verify correct mapping
+- **Save as template** for future imports with the same structure
+- Click **'Transform Data'** when mapping is complete
+
+#### 4d. Preview and Export
+
+- Review the transformed data table
+- Click **'Export to CSV'** to save the processed file
+- Close the wizard — dropdown options in your mapping tables are now populated
+
+> **Tip**: Save templates for recurring imports. Templates store import type, column mappings, and fixed values — saving time on future imports from the same data source.
+
+#### Import Types Reference
+
+| Type | Structure | Required Columns |
+|------|-----------|-----------------|
+| EPIC Export (Baseline/Follow-up) | Element-Value pairs (vertical) | `Element`, `Value`, `MDN`, `Contact Date` |
+| Biobank Data | Patient-sample records (horizontal) | `MDN`, `Sample ID`, `Collection Date`, `Sample Type` |
+| Custom Data | User-defined (flexible) | Defined by user during import |
+
+#### Template Management
+
+**Save a template:** In Step 4c, click **'Save as Template'** after completing your mapping. Enter a descriptive name (e.g., "EPIC Baseline - Hospital A"). The template stores import type, column mappings, fixed values, and file structure requirements.
+
+**Load a template:** In Step 4b, click **'Load Template'** and select a saved template. Mappings are automatically applied in Step 4c. Verify that mappings match your new file structure.
+
+#### Import Wizard Troubleshooting
+
+- **Column not detected**: Ensure the file has headers and uses standard delimiters
+- **Encoding issues**: The wizard auto-detects encoding; if characters display incorrectly, the file may need manual conversion
+- **Required column missing**: Check if your source file contains the necessary data; use fixed values for constants
+- **Template doesn't match file**: Column names must exactly match between template and new file
+- **Transform button disabled**: All required columns must be mapped with valid values
+- **Excel sheet not showing**: Ensure the file is a valid Excel workbook (.xlsx/.xls) with named sheets
+- **Export fails**: Check that you have write permissions to the output directory
+
+### 5. Creating Mappings
+
+The mapping editor is organized into tabbed tables at the bottom of the screen.
 
 #### Working with the Elements Table
 
 The **Elements** tab is the foundation of your mappings:
 
-1. **Add elements**: Click **'+ Add Row'** to create new mappings
-2. **Select values**: Use dropdowns to choose Epic elements and Castor fields
-3. **Automatic propagation**: When you add an element with a checkbox/radiobutton Castor field:
-   - Matching rows are automatically created in the Checkboxes or Radiobuttons tab
-   - The **Castor Name** column is pre-filled
-   - Castor option values are pre-populated
+1. Click **'+ Add Row'** to create a new mapping
+2. Use dropdowns to select:
+   - **Element**: An Epic element from your export
+   - **Castor Name**: The corresponding Castor field
+3. The app automatically:
+   - Creates matching rows in the **Checkboxes** or **Radiobuttons** tab (if the Castor field type is checkbox/radiobutton)
+   - Pre-fills the **Castor Name** column and option values
+   - Provides dropdown options for EPIC values
+4. Organize elements across multiple tabs for complex studies
+5. Use the copy (📋) and paste (📄) buttons to duplicate mappings
 
-4. **Tab organization**: Elements can be organized across multiple tabs for complex studies
-5. **Copy/Paste**: Select rows and use the copy (📋) and paste (📄) buttons to duplicate mappings
+> **💡 Tip**: When copying/cutting elements, related checkboxes and radiobuttons are automatically included!
 
-#### Working with Checkboxes and Radiobuttons Tables
+#### Working with Checkboxes and Radiobuttons
 
-After creating elements with checkbox/radiobutton fields:
+After creating elements with checkbox/radiobutton Castor fields:
 
-1. **Switch to the appropriate tab** (Checkboxes or Radiobuttons)
-2. **Review auto-generated rows**: Each Castor option appears as a separate row
-3. **Map EPIC values**: Select the matching Epic value from the **EPIC Value** dropdown
-4. **Use Auto-fill**: Click the magic wand (🪄) button for intelligent suggestions (see below)
+1. Switch to the **Checkboxes** or **Radiobuttons** tab
+2. Review auto-generated rows — each Castor option appears as a separate row
+3. Select the matching **EPIC Value** from the dropdown for each row
+4. Use **Auto-fill** (🪄 button) for intelligent suggestions (see next section)
 
 #### File Management
 
@@ -692,46 +775,15 @@ The file browser (📁 icon) provides:
 - **File selection**: Choose existing files or upload new ones
 - **Automatic option reload**: After uploading an Epic export, dropdown options refresh automatically
 
-### Keyboard Shortcuts
+#### Saving Your Work
 
-Epic2Castor supports Excel-like keyboard shortcuts for faster data editing and navigation:
+Press **Ctrl+S** or click **'Save'** to persist mappings to the database. Changes are saved to SQLite and synced back to CSV files in the `mapping/` directory.
 
-#### Navigation Shortcuts
-- **`Ctrl+F`** - Focus search box (with text selection)
-- **`Ctrl+Left/Right`** - Navigate between tabs (wraps around)
-- **`Escape`** - Clear all checkbox selections
+### 6. Auto-fill EPIC Values
 
-#### Clipboard Operations
-- **`Ctrl+C`** (or `Ctrl+Insert`) - Copy selected rows (Elements table only)
-- **`Ctrl+X`** - Cut selected rows (Elements table only)
-- **`Ctrl+V`** (or `Shift+Insert`) - Paste copied/cut rows (Elements table only)
+The **Auto-fill** feature (available in Checkboxes and Radiobuttons tabs) uses intelligent matching to suggest EPIC values for Castor options.
 
-> **💡 Tip**: When copying/cutting elements, related checkboxes and radiobuttons are automatically included!
-
-#### Data Operations
-- **`Ctrl+S`** - Save changes (opens save modal)
-
-#### UI Shortcuts
-- **`F1`** - Open help modal (shows all shortcuts)
-- **`F5`** - Refresh current tab (soft reload)
-
-#### Performance Monitoring
-- **`Ctrl+Shift+P`** - Open performance panel (shows shortcut usage statistics)
-
-**Console commands** (open browser console with F12):
-```javascript
-shortcutStats()    // View all statistics
-shortcutTop(5)     // Show top 5 shortcuts
-shortcutReset()    // Reset metrics
-```
-
-> **📚 Full Documentation**: See [`KEYBOARD_SHORTCUTS_GUIDE.md`](KEYBOARD_SHORTCUTS_GUIDE.md) for detailed usage instructions and examples.
-
-### Auto-fill EPIC values
-
-The **Auto-fill** feature (available in Checkboxes and Radiobuttons tabs) uses intelligent matching to suggest EPIC values for Castor options:
-
-#### How to use Auto-fill
+#### How to Use Auto-fill
 
 1. Ensure you have:
    - Created elements with Castor checkboxes/radiobuttons
@@ -750,11 +802,11 @@ The **Auto-fill** feature (available in Checkboxes and Radiobuttons tabs) uses i
    - **Medium confidence** (≥85%): Yellow highlighting
    - **Low confidence** (≥70%): Orange highlighting
    - Check/uncheck individual suggestions
-   - Use filters to show only specific confidence levels or elements
+   - Filter by confidence level or element
 
 5. Click **'Apply Selected'** to fill the values
 
-#### Matching strategies
+#### Matching Strategies
 
 Auto-fill uses up to 8 intelligent strategies (in order of precedence):
 
@@ -766,37 +818,21 @@ Auto-fill uses up to 8 intelligent strategies (in order of precedence):
 6. **MyMemory API**: Alternative translation service
 7. **Fuzzy string matching**: Similarity-based matching using Levenshtein distance
 
-#### ML-Based Autofill (Strategy 4)
+#### ML-Based Autofill (Optional)
 
 When enabled, the ML strategy provides intelligent predictions based on historical patterns:
 
-**Features:**
-- **XGBoost multi-class classifier** with 167 EPIC value classes
-- **TF-IDF text vectorization** (52 features) for pattern recognition
-- **Confidence scoring** (50-100%) for prediction reliability
-- **Automatic retraining** when 20+ new mappings are approved
-- **Performance monitoring** with monthly prediction logs
-- **Backup & recovery** for model corruption protection
-- **Graceful degradation** - falls back to standard strategies if unavailable
+- **XGBoost multi-class classifier** with TF-IDF text vectorization (52 features)
+- **Confidence scoring** (50–100%) for prediction reliability
+- Trains automatically when ≥50 approved mappings exist
+- Retrains after 20+ new mappings are approved
+- Enable/disable via checkbox in the Autofill modal (persists in `config/autofill_settings.json`)
 
-**Requirements:**
-- R packages: `Matrix`, `text2vec`, `xgboost` (auto-installed)
-- Minimum 50 approved mappings for initial training
-- 20 new mappings recommended before retraining
+**Requirements:** R packages `Matrix`, `text2vec`, `xgboost` (auto-installed on first launch). If unavailable, the app continues with standard autofill strategies.
 
-**How to use:**
-1. **Enable ML**: Check "Use ML predictions" in the Autofill configuration modal
-2. **First training**: Model trains automatically when sufficient data exists (≥50 mappings)
-3. **Approve suggestions**: High-quality approvals improve future predictions
-4. **Monitor performance**: Check `logs/ml_predictions/predictions_YYYYMM.csv` for accuracy tracking
-5. **Retrain manually** (optional): Run `retrain_model()` in `scripts/autofill_ml.r`
+<details>
+<summary><strong>ML Model Management</strong></summary>
 
-**Configuration:**
-- Settings saved in: `config/autofill_settings.json`
-- Enable/disable: Checkbox in Autofill modal (persists between sessions)
-- Confidence threshold: 50% minimum (adjustable in settings file)
-
-**Model management:**
 ```r
 # Check if retraining is recommended
 source("scripts/autofill_ml.r")
@@ -814,85 +850,46 @@ status <- validate_model_files()
 if (!status$valid) recover_model_from_backup()
 ```
 
-**Note**: ML packages are automatically installed during first app launch. If installation fails, the app continues with standard autofill strategies. The ML strategy can be enabled/disabled at any time without affecting other strategies.
+Trained models are stored in `config/ml_models/`. Backups are created in `config/ml_models/backups/`. Prediction logs are written to `logs/ml_predictions/predictions_YYYYMM.csv`.
 
-#### Best practices
+</details>
+
+#### Auto-fill Best Practices
 
 - Fill high-confidence suggestions first (green items)
 - Review medium-confidence suggestions carefully (yellow items)
 - Manually check low-confidence suggestions (orange items)
-- Use **'Export CSV'** to save suggestions for review
+- Use **'Export CSV'** to save suggestions for offline review
 - Approved auto-fills build a reference dictionary for future runs
 
-### Study Dashboard
+### 7. Running the ETL Pipeline
 
-The **Study Dashboard** provides a real-time overview of your Castor study, accessible via the **Dashboard** button (📊) in the app's top menu bar. All data is fetched directly from the Castor API.
+Once your mappings are complete, run the ETL to transform Epic data into Castor-ready format.
 
-#### Dashboard Tabs
+**From the app:** Use the ETL execution buttons in the app interface with progress monitoring.
 
-**1. Patient Inclusion**
-- Total number of included (active) and archived patients
-- Cumulative inclusion curve showing patient enrollment over time
-- Monthly inclusion bar chart for trend analysis
+**From the command line:**
 
-**2. Data Completeness**
-- Overall data completion percentage across all records
-- Per-form breakdown showing completion rates for each form (e.g., Medical History 42.5%, Symptoms 34.9%)
-- Per-record completion percentages to identify records needing attention
-- Per-field fill rates to spot consistently missing data points
-- Calculation fields are automatically excluded from completeness metrics
-
-**3. Biobank Samples**
-- Total sample count with unique patient count
-- Breakdown by sample type (e.g., Plasma EDTA, DNA stock)
-- Breakdown by sample status (e.g., Complete, Pending)
-- Per-patient sample table showing sample distribution
-
-#### How It Works
-
-The dashboard uses three Castor API endpoints:
-- **`/export/data`** — Bulk CSV export of all study data (long format: one row per field per record)
-- **`/export/structure`** — Field definitions for mapping Field IDs (UUIDs) to human-readable variable names
-- **`/record`** — Record list with metadata (creation date, status, archived flag)
-
-Data is automatically cached for 30 minutes in `db/dashboard_cache/` to minimize API calls. Click **Refresh Data** in the dashboard to force a fresh fetch.
-
-#### Requirements
-
-- Valid Castor API credentials configured in `config/APIConfig.json`
-- Active internet connection for API calls
-- No additional packages required beyond the base app dependencies
-
-### Run the ETL
-
-ETL scripts are available for different data types:
-
-**Baseline data:**
 ```r
-source("scripts/baseline/baseline.r")
-# or
+# Baseline data
 Rscript scripts/baseline/baseline.r
-```
 
-**Follow-up data:**
-```r
-source("scripts/follow_up/follow_up.r")
-# or
+# Follow-up data
 Rscript scripts/follow_up/follow_up.r
-```
 
-**Biobank data:**
-```r
-source("scripts/biobank_data/biobank_data.r")
-# or
+# Biobank data
 Rscript scripts/biobank_data/biobank_data.r
 ```
 
-Each script outputs Castor-ready CSVs under the corresponding [`output_data`](output_data) subfolder per mapping definition ([`mapping/variabelen.csv`](mapping/variabelen.csv)).
+Each script reads Epic exports from [`input_data/`](input_data), applies your mappings, normalizes dates, resolves option values, and outputs Castor-ready CSVs under the corresponding [`output_data/`](output_data) subfolder.
 
-### Generate Castor upload payloads
+### 8. Exporting to Castor
 
-After ETL output:
+After the ETL produces output CSVs, generate JSON payloads and upload to Castor.
+
+**From the app:** Use the export buttons to generate and submit payloads via the Castor API with progress monitoring.
+
+**From the command line:**
 
 ```r
 # Baseline JSON + API upload
@@ -907,139 +904,63 @@ Rscript scripts/follow_up/follow_upExport.r "<site_id> - <site_name>"
 
 Each export script:
 
-1. Reads staged CSVs from the corresponding `output_data` subfolder.
-2. Streams JSON payloads into [`castor_export`](castor_export).
-3. Ensures participants, repeating data, and datapoints via the Castor API.
-4. Records a detailed [`Datastructure.json`](castor_meta/Datastructure.json) snapshot for auditing.
+1. Reads staged CSVs from the corresponding `output_data/` subfolder
+2. Streams JSON payloads into [`castor_export/`](castor_export)
+3. Creates or updates participants, repeating data, and datapoints via the Castor API
+4. Records a detailed [`Datastructure.json`](castor_meta/Datastructure.json) snapshot for auditing
 
-### Import Wizard
+### 9. Monitoring with the Study Dashboard
 
-The **Import Wizard** provides a step-by-step interface for importing external data files into Epic2Castor:
+The **Study Dashboard** (📊 button in the top menu bar) provides a real-time overview of your Castor study powered by the Castor API.
 
-#### Features
+#### Patient Inclusion
 
-- **Multi-format support**: CSV, Excel (.xlsx, .xls), TSV
-- **Automatic structure detection**: Identifies file type, encoding, and structure
-- **Smart column mapping**: Interactive mapping interface with visual preview
-- **Template system**: Save and reuse mapping configurations
-- **Data validation**: Real-time validation of mapped data
-- **Excel sheet selection**: Choose specific sheets from multi-sheet workbooks
-- **Transformation preview**: Review transformed data before export
-- **Direct export**: Export processed data to CSV
+- Total included and archived patients
+- Cumulative inclusion curve over time
+- Monthly inclusion bar chart for trend analysis
 
-#### How to Use the Import Wizard
+#### Data Completeness
 
-1. **Open the wizard**:
-   - Click **'Import'** menu in the top navigation bar
-   - Select **'Import Wizard'**
+- Overall completion percentage across all records
+- Per-form completion breakdown (e.g., Medical History 42.5%, Symptoms 34.9%)
+- Per-record and per-field fill rates
+- Calculation fields automatically excluded from metrics
 
-2. **Step 1: Select Import Type**:
-   - Choose the type of data you're importing:
-     - **EPIC Export (Baseline)**: Patient baseline data in Element-Value format
-     - **EPIC Export (Follow-up)**: Follow-up data in Element-Value format
-     - **Biobank Data**: Laboratory/biobank sample data
-     - **Custom Data**: Generic data import with custom column mapping
-   - Each type has predefined column requirements and validation rules
+#### Biobank Samples
 
-3. **Step 2: Upload and Detect File**:
-   - Click **'Browse'** to select your file (CSV, Excel, or TSV)
-   - The wizard automatically detects:
-     - File format and encoding (UTF-8, Latin-1, Windows-1252)
-     - Column structure and data types
-     - Excel sheet names (if applicable)
-   - For Excel files with multiple sheets:
-     - Select the target sheet from the dropdown
-     - Preview shows first 10 rows
-   - Optionally load a saved template to auto-populate mappings
+- Total sample count with unique patient count
+- Breakdown by sample type (e.g., Plasma EDTA, DNA stock) and status (e.g., Complete, Pending)
+- Per-patient sample overview
 
-4. **Step 3: Map Columns**:
-   - Interactive mapping table shows:
-     - **Required columns**: Marked with red asterisk (*)
-     - **Source columns**: Detected columns from your file
-     - **Sample data**: Preview of actual values
-     - **Validation status**: Real-time feedback
-   - Map each required column:
-     - Use dropdowns to select corresponding source columns
-     - Or enter custom fixed values for constant columns
-     - View sample data to verify correct mapping
-   - **Save as template**: Store mapping configuration for future use
-   - Click **'Transform Data'** when mapping is complete
+The dashboard uses three Castor API endpoints (`/export/data`, `/export/structure`, `/record`). Data is cached for 30 minutes in `db/dashboard_cache/`. Click **Refresh Data** to force a fresh fetch. Requires valid API credentials and internet access.
 
-5. **Step 4: Preview and Export**:
-   - Review the transformed data table
-   - Verify column names and data structure
-   - Click **'Export to CSV'** to save the processed file
-   - Export confirmation shows:
-     - Output file path
-     - Number of rows and columns processed
+### Keyboard Shortcuts
 
-#### Template Management
+Epic2Castor supports Excel-like keyboard shortcuts for faster editing:
 
-**Save a template:**
-- In Step 3, click **'Save as Template'** after completing your mapping
-- Enter a descriptive name (e.g., "EPIC Baseline - Hospital A")
-- Template stores:
-  - Import type
-  - Column mappings
-  - Fixed values
-  - File structure requirements
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+F` | Focus search box (with text selection) |
+| `Ctrl+Left/Right` | Navigate between tabs (wraps around) |
+| `Escape` | Clear all checkbox selections |
+| `Ctrl+C` / `Ctrl+Insert` | Copy selected rows (Elements only) |
+| `Ctrl+X` | Cut selected rows (Elements only) |
+| `Ctrl+V` / `Shift+Insert` | Paste copied/cut rows (Elements only) |
+| `Ctrl+S` | Save changes (opens save modal) |
+| `F1` | Open help modal (shows all shortcuts) |
+| `F5` | Refresh current tab (soft reload) |
+| `Ctrl+Shift+P` | Open performance panel |
 
-**Load a template:**
-- In Step 2, click **'Load Template'**
-- Select a saved template from the dropdown
-- Mappings are automatically applied in Step 3
-- Verify mappings match your new file structure
+> **💡 Tip**: When copying/cutting elements, related checkboxes and radiobuttons are automatically included!
 
-**Use cases:**
-- Recurring imports from the same data source
-- Standardizing imports across multiple sites
-- Sharing mapping configurations with team members
-- Maintaining consistency across import sessions
+**Console commands** (open browser console with F12):
+```javascript
+shortcutStats()    // View all statistics
+shortcutTop(5)     // Show top 5 shortcuts
+shortcutReset()    // Reset metrics
+```
 
-#### Import Types
-
-**EPIC Export (Baseline & Follow-up)**:
-- Structure: Element-Value pairs (vertical format)
-- Required columns:
-  - `Element`: EPIC element code (e.g., PBAIG#043)
-  - `Value`: Corresponding value
-  - `MDN`: Patient identifier
-  - `Contact Date`: Visit/data collection date
-- Common use: SmartForm exports from EPIC EMR
-
-**Biobank Data**:
-- Structure: Patient-sample records (horizontal format)
-- Required columns:
-  - `MDN`: Patient identifier
-  - `Sample ID`: Unique sample identifier
-  - `Collection Date`: Sample collection timestamp
-  - `Sample Type`: Type of biological sample
-- Common use: Laboratory sample tracking data
-
-**Custom Data**:
-- Structure: User-defined (flexible format)
-- Required columns: Defined by user during import
-- Common use: Third-party data sources, research databases
-
-#### Best Practices
-
-- **Validate before transforming**: Check the column mapping table for red validation errors
-- **Use templates**: Save time on recurring imports with the same structure
-- **Review samples**: Always check sample data previews to ensure correct column selection
-- **Check sheet selection**: For Excel files, verify you've selected the correct sheet
-- **Export promptly**: Export transformed data immediately to avoid losing progress
-- **Test with small files**: Validate mappings with a small sample before processing large datasets
-
-#### Troubleshooting
-
-- **Column not detected**: Ensure the file has headers and uses standard delimiters
-- **Encoding issues**: The wizard auto-detects encoding; if characters display incorrectly, the file may need manual conversion
-- **Required column missing**: Check if your source file contains the necessary data; use fixed values for constants
-- **Template doesn't match file**: Column names must exactly match between template and new file
-- **Transform button disabled**: All required columns must be mapped with valid values
-- **Excel sheet not showing**: Ensure the file is a valid Excel workbook (.xlsx/.xls) with named sheets
-- **Export fails**: Check that you have write permissions to the output directory
-- **Large file slow**: Processing files with >10,000 rows may take a few seconds; be patient
+> See [`KEYBOARD_SHORTCUTS_GUIDE.md`](KEYBOARD_SHORTCUTS_GUIDE.md) for full documentation.
 
 ---
 
@@ -1052,7 +973,7 @@ The **Import Wizard** provides a step-by-step interface for importing external d
 - **Upload failures**: inspect JSON payloads in [`castor_export`](castor_export) and [`Datastructure.json`](castor_meta/Datastructure.json) for server responses.
 - **Configuration not found**: ensure [`config/APIConfig.json`](config/APIConfig.json) exists and contains valid credentials. Use the app's **'Castor' → 'Update credentials'** menu for easy configuration.
 - **Autofill issues**: check [`config/medical_terms.json`](config/medical_terms.json) for missing translations and review confidence thresholds in [`scripts/autofill.r`](scripts/autofill.r).
-- **Empty dropdowns after file upload**: Ensure you've completed the Quick Start Guide steps 1-5 (R/RStudio/Rtools → open project → packages → credentials → refresh metadata → load file).
+- **Empty dropdowns after file upload**: Ensure you've completed the Quick Start Guide steps 1-7 (R/RStudio/Rtools → open project → packages → first launch → credentials → refresh metadata → load file).
 - **Checkboxes/Radiobuttons not auto-populating**: Make sure the Castor field type is correctly set as checkbox/radiobutton in Castor EDC. Refresh metadata to update field types.
 - **Hash file errors**: The app uses MD5 hashing to detect changes. If you see unexpected rebuild messages, check that CSV files aren't being modified by external processes.
 - **Locale warnings**: The app uses Dutch locale settings (`,` for decimals, `.` for thousands). If you see locale warnings, ensure your CSV files match this format.
@@ -1109,3 +1030,4 @@ When contributing:
 ## License
 
 If [`LICENSE.md`](LICENSE.md) exists, its terms apply; otherwise, all rights remain with the repository owners.
+
