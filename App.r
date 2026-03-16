@@ -5246,10 +5246,12 @@ server <- function(input, output, session) {
   observeEvent(input$show_about, {
     # --- Read local VERSION file (if present) ---
     if (is.null(.about_cache$local)) {
-      .about_cache$local <- tryCatch({
-        v <- trimws(readLines("VERSION", n = 1L, warn = FALSE))
-        if (nzchar(v)) v else NA_character_
-      }, error = function(e) NA_character_)
+      .about_cache$local <- if (file.exists("VERSION")) {
+        tryCatch({
+          v <- trimws(readLines("VERSION", n = 1L, warn = FALSE))
+          if (nzchar(v)) v else NA_character_
+        }, error = function(e) NA_character_)
+      } else NA_character_
     }
     
     # --- Fetch latest release from GitHub (once per session) ---
