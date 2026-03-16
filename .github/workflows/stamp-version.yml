@@ -1,0 +1,27 @@
+name: Stamp VERSION on release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  stamp-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Write VERSION file
+        run: echo "${{ github.event.release.tag_name }}" > VERSION
+
+      - name: Commit and push VERSION
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git diff --cached --quiet && echo "No changes" || git commit -m "Stamp VERSION to ${{ github.event.release.tag_name }}"
+          git push origin HEAD:master
