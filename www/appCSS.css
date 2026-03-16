@@ -1,0 +1,1314 @@
+/* ===================================================================
+   EPIC2CASTOR APPLICATION STYLES
+   Main stylesheet for the Epic2Castor data mapping application
+   =================================================================== */
+
+/* ===== CELL COLOR VARIABLES ===== */
+/* Centralized color definitions — change here to update all cell colors */
+:root {
+  --cell-red-border: red;
+  --cell-red-bg: #fdd;
+  --cell-red-text: red;
+
+  --cell-blue-border: blue;
+  --cell-blue-bg: #ddf;
+  --cell-blue-text: blue;
+
+  --cell-orange-border: #ff9800;
+  --cell-orange-bg: #ffe0b2;
+  --cell-orange-text: #ff9800;
+
+  --cell-yellow-border: #f9a825;
+  --cell-yellow-bg: #fff9c4;
+  --cell-yellow-text: #f57f17;
+}
+
+/* ===== IMPORT WIZARD STYLES ===== */
+
+/* Wizard modal styling */
+.wizard-modal .modal-body {
+  max-height: calc(100vh - 250px);
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* Wizard step container */
+.wizard-step {
+  background-color: #f8f9fa;
+  padding: 15px;
+  margin-bottom: 20px;
+  border-radius: 5px;
+  border-left: 4px solid #007bff;
+}
+
+.wizard-step h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #495057;
+  font-size: 1.2rem;
+}
+
+/* Wizard step states */
+.step-complete {
+  border-left-color: #28a745;
+  background-color: #d4edda;
+}
+
+.step-active {
+  border-left-color: #007bff;
+  background-color: #cfe2ff;
+}
+
+.step-pending {
+  border-left-color: #6c757d;
+  background-color: #e2e3e5;
+}
+
+/* Confidence level indicators */
+.confidence-high {
+  color: #28a745;
+  font-weight: bold;
+}
+
+.confidence-medium {
+  color: #ffc107;
+  font-weight: bold;
+}
+
+.confidence-low {
+  color: #fd7e14;
+  font-weight: bold;
+}
+
+.confidence-very-low {
+  color: #dc3545;
+  font-weight: bold;
+}
+
+/* ===== LAYOUT: FIXED HEADER & FOOTER ===== */
+
+/* Fixed header and footer positioning
+   Keeps navigation and controls visible during scrolling */
+.fixed-header,
+.fixed-footer {
+  position: fixed;
+  left: 0;
+  width: 100%;
+  background: white;
+  z-index: 1001;  /* Above content but below modals */
+  padding: 10px;
+}
+
+/* Header fixed to top with bottom border */
+.fixed-header { 
+  top: 0;
+  border-bottom: 1px solid #ccc; 
+}
+
+/* Footer fixed to bottom with top border */
+.fixed-footer { 
+  bottom: 0; 
+  border-top: 1px solid #ccc; 
+  padding: 10px;
+}
+
+/* Footer button groups - logical grouping with visual separation */
+.footer-btn-group {
+  display: inline-flex;
+  gap: 8px; /* Space between buttons within a group */
+  align-items: center;
+}
+
+/* Separator between button groups */
+.footer-separator {
+  display: inline-block;
+  width: 1px;
+  height: 30px;
+  background-color: #ddd;
+  margin: 0 5px;
+  vertical-align: middle;
+}
+
+/* Remove default body padding - handled by JavaScript based on header/footer height */
+/* Prevent body scrollbar - table has its own scrollbar */
+html, body { 
+  padding: 0;
+  margin: 0;
+  overflow: hidden; /* No body scrollbar */
+  height: 100vh; /* Full viewport height */
+  overscroll-behavior: none; /* Prevent pull-to-refresh / trackpad overscroll that can shift layout */
+}
+
+/* Prevent layout shift when Bootstrap modals open */
+body.modal-open {
+  overflow: hidden; /* Keep overflow hidden when modal is open */
+  padding-right: 0 !important; /* Prevent Bootstrap from adding padding */
+}
+
+/* ===== HEADER LAYOUT ===== */
+
+/* Header container - flex layout with space between left and right sections */
+.header-container { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: flex-start; 
+}
+
+/* Left section of header - stacked vertically */
+.header-left { 
+  display: flex; 
+  flex-direction: column; 
+}
+
+/* Top row of header left section */
+.header-top { 
+  display: flex; 
+  align-items: center; 
+}
+
+/* Bottom row of header left section */
+.header-bottom { 
+  margin-top: 5px; 
+}
+
+/* ===== MENU BAR ===== */
+
+/* Menu bar container - horizontal layout with gaps */
+.menu-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Menu toggle button styling */
+.menu-toggle {
+  background-color: #f5f5f5;
+  border-color: #ccc;
+  color: #333;
+  padding: 6px 12px;
+}
+
+/* Dropdown menu minimum width */
+.menu-group .dropdown-menu {
+  min-width: 190px;
+}
+
+/* Menu link styling - clickable items in dropdown */
+.menu-link {
+  display: block;
+  padding: 6px 20px;
+  color: #333;
+}
+
+/* Menu link hover and focus states */
+.menu-link:hover,
+.menu-group .dropdown-menu > li > a:focus {
+  background-color: #f0f0f0;
+  text-decoration: none;
+  color: #000;
+}
+
+/* Disabled menu items - no interaction and grayed out */
+.menu-bar .disabled,
+.menu-bar .disabled:hover {
+  pointer-events: none;
+  color: #a0a0a0;
+  background-color: transparent;
+}
+
+/* ===== DATA TABLE LAYOUT ===== */
+
+/* Main table styling */
+#table table {
+  border-collapse: separate !important;  /* Required for sticky columns to work properly */
+  border-spacing: 0 !important;     /* Remove spacing between cells */
+  table-layout: fixed;               /* Colgroup <col> widths are authoritative */
+}
+
+/* Remove gap between DataTables scroll header and body */
+.dataTables_scrollHead {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.dataTables_scrollBody {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: none !important;
+}
+
+/* Hide the sizing thead that DataTables creates */
+thead tr[style*="height: 0px"] {
+  display: none !important;
+  height: 0 !important;
+  line-height: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Table cell styling - consistent padding and text overflow handling */
+#table table th,
+#table table td {
+  padding: 5px !important;
+  box-sizing: border-box;
+  overflow: hidden;               /* Hide overflowing text */
+  text-overflow: ellipsis;        /* Show ... for truncated text */
+  white-space: nowrap;            /* Prevent text wrapping */
+  position: relative;
+  z-index: 1;                     /* Base z-index for normal cells */
+  min-height: 34px !important;    /* Keep consistent row height when dropdowns open */
+  height: 34px !important;
+}
+
+/* Select2 cell height — see full definition in SELECT2 DROPDOWN STYLING section below */
+
+/* Dropdown selects in table - full width */
+#table table select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ===== COLUMN RESIZING ===== */
+
+/* Disable CSS resize - we use custom JavaScript implementation for precise control */
+#table table th {
+  resize: none !important;         /* Disable native CSS resize */
+  overflow: hidden !important;     /* No scrollbars */
+  position: relative;              /* For resize grip positioning */
+  user-select: none;               /* Prevent text selection during resize */
+}
+
+/* Visual resize handle (grip) for dragging */
+#table table th .resize-grip {
+  position: absolute;
+  top: 0;
+  right: -4px;                   /* Center wider grip on border */
+  width: 8px;                    /* Make grab area easier to hit */
+  height: 100%;
+  cursor: col-resize;
+  background: rgba(200, 200, 200, 0.5); /* Subtly visible by default */
+  transition: background-color 0.2s;
+  z-index: 20;                   /* Above other content */
+}
+
+/* Highlight resize grip on hover */
+#table table th .resize-grip:hover {
+  background-color: rgba(0, 123, 255, 0.7);
+}
+
+/* Active resize indicator */
+#table table th .resize-grip.resizing {
+  background-color: rgba(0, 123, 255, 0.8);
+}
+
+/* ===== STICKY COLUMNS (First & Last) ===== */
+
+/* First column (checkbox column) - sticky left side
+   Fixed width, always visible during horizontal scroll */
+#table table th:first-child,
+#table table td:first-child {
+  width: 55px !important;
+  min-width: 55px !important;
+  max-width: 55px !important;
+  position: sticky !important;
+  left: 0 !important;
+  background-color: white !important;
+  z-index: 25 !important;                     /* Above normal cells and resize grips */
+  box-shadow: 2px 0 5px rgba(0,0,0,0.1) !important;
+}
+
+/* Last column (actions column) - sticky right side
+   Fixed width, always visible during horizontal scroll */
+#table table th:last-child,
+#table table td:last-child {
+  width: 55px !important;
+  min-width: 55px !important;
+  max-width: 55px !important;
+  position: sticky !important;
+  right: 0 !important;
+  background-color: white !important;
+  z-index: 25 !important;                      /* Above normal cells and resize grips */
+  box-shadow: -2px 0 5px rgba(0,0,0,0.1) !important;
+}
+
+/* Middle columns - resizable with text overflow handling */
+#table table th:not(:first-child):not(:last-child),
+#table table td:not(:first-child):not(:last-child) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Column alignment - left for checkbox, center for actions */
+#table table th:first-child,
+#table table td:first-child { 
+  text-align: left; 
+}
+
+#table table th:last-child,
+#table table td:last-child { 
+  text-align: center; 
+}
+
+
+/* ===== CELL COLOR CODING ===== */
+/* Uses CSS custom properties from :root for easy theme changes */
+
+/* Red: invalid/unknown value not in Castor option list */
+.red-cell  { 
+  border: 1px solid var(--cell-red-border)  !important; 
+  background: var(--cell-red-bg) !important;
+  color: var(--cell-red-text)  !important; 
+}
+
+/* Blue: manually entered value (user confirmed) */
+.blue-cell { 
+  border: 1px solid var(--cell-blue-border) !important; 
+  background: var(--cell-blue-bg) !important;
+  color: var(--cell-blue-text) !important; 
+}
+
+/* Orange: duplicate Element or castor_kolom */
+.orange-cell { 
+  border: 1px solid var(--cell-orange-border) !important; 
+  background: var(--cell-orange-bg) !important;
+  color: var(--cell-orange-text) !important; 
+}
+
+/* Yellow: warning — near-match, incomplete mapping, or out-of-range value */
+.yellow-cell {
+  border: 1px solid var(--cell-yellow-border) !important;
+  background: var(--cell-yellow-bg) !important;
+  color: var(--cell-yellow-text) !important;
+}
+
+/* ===== DUPLICATE ROW HIGHLIGHTING ===== */
+
+/* Duplicate row styling - highlights entire rows with duplicate Element or castor_kolom values
+   Applied automatically when duplicates are detected by the duplicate detection function
+   Visual feedback: Orange/amber background with accent border */
+tr.duplicate-row {
+  background-color: #FFF3E0 !important;  /* Light amber/orange background */
+  border-left: 4px solid #FF9800 !important;  /* Thick orange left border for emphasis */
+  transition: background-color 0.2s ease;  /* Smooth transition on hover */
+}
+
+/* Duplicate row hover state - slightly darker for better visual feedback */
+tr.duplicate-row:hover {
+  background-color: #FFE0B2 !important;  /* Darker amber on hover */
+}
+
+/* Ensure sticky columns (first & last) maintain white background even in duplicate rows
+   This prevents the orange background from affecting the checkbox and action columns */
+tr.duplicate-row td:first-child,
+tr.duplicate-row td:last-child {
+  background-color: white !important;  /* Keep sticky columns white */
+}
+
+/* Optional: Add a subtle shadow to duplicate rows for extra depth */
+tr.duplicate-row td {
+  box-shadow: inset 0 1px 3px rgba(255, 152, 0, 0.1);  /* Subtle inner shadow */
+}
+
+/* ===== LAZY DROPDOWN STYLING ===== */
+
+/* Lazy dropdown placeholder - appears as clickable cell before conversion to select */
+/* IMPORTANT: dimensions MUST match .select2-container .select2-selection--single
+   so the cell does not shift when lazy-dropdown converts to Select2 on click. */
+.lazy-dropdown {
+  min-height: 32px;
+  height: 32px;
+  padding: 2px 24px 2px 8px;  /* right padding reserves space for ▼ arrow */
+  cursor: pointer;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  transition: border-color 0.15s ease;
+  background-color: #fff;
+  color: #212529;
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  box-sizing: border-box;
+  line-height: 28px;
+  font-size: 14px;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Add dropdown arrow indicator — visually matches Select2's arrow */
+.lazy-dropdown::after {
+  content: '▼';
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  color: #888;
+  pointer-events: none;
+}
+
+/* Hover state - indicates interactivity */
+.lazy-dropdown:hover {
+  border-color: #777;
+  background-color: #f9f9f9;
+}
+
+.lazy-dropdown:hover::after {
+  color: #333;
+}
+
+/* Focus state - keyboard navigation support */
+.lazy-dropdown:focus {
+  outline: none;
+  border-color: #4A90E2;
+  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+  background-color: white;
+}
+
+.lazy-dropdown:focus::after {
+  color: #4A90E2;
+}
+
+/* Color coding for lazy dropdowns — inherits cell color variables */
+.lazy-dropdown.red-cell    { border-color: var(--cell-red-border) !important;    background: var(--cell-red-bg) !important;    color: var(--cell-red-text) !important; }
+.lazy-dropdown.blue-cell   { border-color: var(--cell-blue-border) !important;   background: var(--cell-blue-bg) !important;   color: var(--cell-blue-text) !important; }
+.lazy-dropdown.orange-cell { border-color: var(--cell-orange-border) !important; background: var(--cell-orange-bg) !important; color: var(--cell-orange-text) !important; }
+.lazy-dropdown.yellow-cell { border-color: var(--cell-yellow-border) !important; background: var(--cell-yellow-bg) !important; color: var(--cell-yellow-text) !important; }
+
+.lazy-dropdown.red-cell::after    { color: var(--cell-red-text) !important; }
+.lazy-dropdown.blue-cell::after   { color: var(--cell-blue-text) !important; }
+.lazy-dropdown.orange-cell::after { color: var(--cell-orange-text) !important; }
+.lazy-dropdown.yellow-cell::after { color: var(--cell-yellow-text) !important; }
+
+/* ===== WIDTH SLIDER CUSTOMIZATION ===== */
+
+/* Hide labels and grid for the width slider (ionRangeSlider)
+   Only show the draggable handle for cleaner UI */
+.js-irs-0 .irs-single,
+.js-irs-0 .irs-min,
+.js-irs-0 .irs-max,
+.js-irs-0 .irs-grid {
+  display: none !important;
+}
+
+/* ===== SELECT2 DROPDOWN STYLING ===== */
+
+/* Remove native select appearance - replaced by Select2 */
+select.lazy-load {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+/* Hide IE/Edge default dropdown arrow */
+select.lazy-load::-ms-expand {
+  display: none;
+}
+
+/* Hide the original select when Select2 is active */
+select.lazy-load.select2-hidden-accessible { 
+  display: none !important; 
+}
+
+/* (No duplicate .lazy-dropdown block — single definition above) */
+
+/* Select2 container - full width inline display */
+.select2-container {
+  display: inline-block !important;
+  width: 100%          !important;
+  position: relative   !important;
+}
+
+/* Match Select2 selection look to the lazy-dropdown placeholder */
+.select2-container .select2-selection--single {
+  min-height: 32px !important;
+  height: 32px !important;
+  line-height: 28px !important;
+  padding: 2px 24px 2px 8px !important;  /* same as .lazy-dropdown */
+  border: 1px solid #ced4da !important;
+  border-radius: 4px !important;
+  background: #fff !important;
+  box-sizing: border-box !important;
+  font-size: 14px !important;
+}
+
+/* Position the rendered text identically to .lazy-dropdown */
+.select2-container .select2-selection--single .select2-selection__rendered {
+  padding: 0 !important;
+  line-height: 28px !important;
+  color: #212529;
+}
+
+/* Style Select2 arrow to match the lazy-dropdown ▼ indicator */
+.select2-container .select2-selection--single .select2-selection__arrow {
+  height: 100% !important;
+  width: 20px !important;
+  right: 2px !important;
+  top: 0 !important;
+}
+.select2-container .select2-selection--single .select2-selection__arrow b {
+  /* Replace default triangle with a matching small ▼ */
+  border-width: 4px 4px 0 4px !important;
+  border-color: #888 transparent transparent transparent !important;
+  margin-top: -2px !important;
+}
+
+/* Ensure Select2 dropdowns appear above other elements */
+.select2-container--open,
+.select2-container--open .select2-dropdown {
+  z-index: 9999 !important;
+}
+
+/* Color-coded Select2 selections — uses CSS custom properties */
+.select2-selection.red-cell    { border-color: var(--cell-red-border) !important;    background: var(--cell-red-bg) !important;    color: var(--cell-red-text) !important; }
+.select2-selection.blue-cell   { border-color: var(--cell-blue-border) !important;   background: var(--cell-blue-bg) !important;   color: var(--cell-blue-text) !important; }
+.select2-selection.orange-cell { border-color: var(--cell-orange-border) !important; background: var(--cell-orange-bg) !important; color: var(--cell-orange-text) !important; }
+.select2-selection.yellow-cell { border-color: var(--cell-yellow-border) !important; background: var(--cell-yellow-bg) !important; color: var(--cell-yellow-text) !important; }
+
+/* Force Select2 rendered text to inherit color from parent selection */
+.select2-selection.red-cell .select2-selection__rendered    { color: var(--cell-red-text) !important; }
+.select2-selection.blue-cell .select2-selection__rendered   { color: var(--cell-blue-text) !important; }
+.select2-selection.orange-cell .select2-selection__rendered { color: var(--cell-orange-text) !important; }
+.select2-selection.yellow-cell .select2-selection__rendered { color: var(--cell-yellow-text) !important; }
+
+/* ===== CELL TOOLTIP SYSTEM ===== */
+/* JS-powered tooltip appended to <body> to avoid overflow:hidden clipping. */
+/* Created/destroyed by appJS.js hover listeners on [data-tooltip] elements. */
+
+.cell-tooltip {
+  position: absolute;
+  padding: 5px 10px;
+  border-radius: 4px;
+  background: #333;
+  color: #fff;
+  font-size: 12px;
+  font-weight: normal;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 100000;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  line-height: 1.4;
+}
+
+/* Color-specific tooltip backgrounds */
+.cell-tooltip.tip-red    { background: var(--cell-red-text); }
+.cell-tooltip.tip-blue   { background: var(--cell-blue-text); }
+.cell-tooltip.tip-orange { background: var(--cell-orange-text); }
+.cell-tooltip.tip-yellow { background: var(--cell-yellow-text); }
+
+/* ===== POPOVERS ===== */
+
+/* Ensure popovers appear above most elements but below modals */
+.popover {
+  z-index: 2000 !important;
+}
+
+/* ===== TABLE SCROLL CONTAINER ===== */
+
+/* Scrollable container for wide tables
+   Overflow is managed by JavaScript for proper scrollbar compensation */
+#scrollDiv {
+  position: relative;
+  overflow: visible; /* Default — JS overrides when DataTable is active */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ===== TABLE RESIZE GRIP ===== */
+
+/* Container for table with resize functionality */
+.table-resize-container {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* Resize grip in bottom-right corner (like Excel/spreadsheets) */
+.table-resize-grip {
+  /* Position set by JavaScript */
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  background: #007bff;  /* Solid blue background for visibility */
+  border: 2px solid white;  /* White border for contrast */
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);  /* Shadow for depth */
+  z-index: 1000;  /* Above most content */
+  opacity: 0.85;
+  transition: all 0.2s ease;
+  display: none;  /* Hidden by default, shown by JS */
+  align-items: center;
+  justify-content: center;
+}
+
+/* Hover state - more visible and larger */
+.table-resize-grip:hover {
+  opacity: 1;
+  background: #0056b3;
+  transform: scale(1.15);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+/* Active/dragging state */
+.table-resize-grip.resizing {
+  opacity: 1;
+  background: #0056b3;
+  transform: scale(1.1);
+  cursor: nwse-resize !important;
+}
+
+/* Visual indicator - single resize icon */
+.table-resize-grip::before {
+  content: '⇲';  /* Unicode resize icon */
+  color: white;
+  font-size: 13px;
+  font-weight: bold;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Main panel and box containers - allow content overflow for info bar */
+.col-sm-8 {
+  overflow: visible !important; /* Allow content to show */
+  box-sizing: border-box;
+  width: 100%; /* Full width of available space */
+  position: relative; /* Create positioning context for resize grip */
+  padding-right: 0 !important; /* Remove right padding to allow grip placement */
+}
+
+.box {
+  overflow: visible !important; /* Allow info bar to show below */
+  box-sizing: border-box;
+  width: 100% !important; /* Override fixed width */
+  max-width: none !important; /* Remove max-width restrictions */
+}
+
+/* DataTables wrapper - allow info bar to show */
+.dataTables_wrapper {
+  overflow: visible !important;
+  box-sizing: border-box;
+  position: relative; /* Create positioning context for resize grip */
+  min-height: 500px !important; /* Ensure enough space for table + info bar */
+  padding-bottom: 60px !important; /* Reserve space for info bar at bottom */
+}
+
+/* DataTables info bar - ensure it's visible and above footer */
+.dataTables_info {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  margin-top: 10px !important;
+  margin-bottom: 10px !important;
+  padding: 8px 10px !important;
+  position: relative !important;
+  z-index: 100 !important; /* Ensure above other content but below fixed footer */
+  background: white !important; /* Ensure readable on any background */
+  clear: both !important; /* Clear any floats */
+  width: 100% !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+/* DataTables scroll head - prevent horizontal scrollbar in header */
+.dataTables_scrollHead {
+  overflow: hidden !important;
+}
+
+/* DataTables scroll body - overflow managed by JS for scrollbar compensation */
+.dataTables_scrollBody {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ===== MODAL DIALOG STYLING ===== */
+
+/* Console output in modals - scrollable with formatted text
+   Used for displaying process logs and feedback */
+#console-output {
+  max-height: 60vh;                /* Limit height to viewport */
+  overflow-y: auto;                /* Vertical scrolling if needed */
+  white-space: pre-wrap;           /* Preserve formatting but wrap long lines */
+  word-break: break-word;          /* Break long words to prevent horizontal overflow */
+  padding: 8px;
+  background: #f8f9fa;             /* Light gray background */
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+}
+
+/* Modal body - scrollable to handle long content */
+.modal .modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* ===== TAB NAVIGATION (Excel-style) ===== */
+
+/* Tab navigation bar - positioned at bottom of footer
+   Mimics Excel workbook tab interface */
+.tab-navigation-bar {
+  background: #f0f0f0;
+  border-top: 2px solid #ccc;
+  padding: 6px 8px 0 8px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;      /* Tabs start on the left */
+  min-height: 38px;
+  margin: 0 -10px -10px -10px;      /* Extend to footer edges */
+  text-align: left;
+}
+
+/* Container for tab buttons - horizontally scrollable */
+.tab-list-container {
+  display: flex;
+  gap: 2px;                         /* Small gap between tabs */
+  overflow-x: auto;                 /* Horizontal scroll if many tabs */
+  flex: 1;
+  align-items: flex-end;
+  justify-content: flex-start;      /* Tabs begin on left side */
+  text-align: left;
+}
+
+/* Individual tab button - Excel-style appearance */
+.tab-button {
+  background: #e0e0e0;              /* Inactive tab color */
+  border: 1px solid #aaa;
+  border-bottom: none;              /* No bottom border for tab effect */
+  padding: 6px 16px 8px 16px;
+  border-radius: 6px 6px 0 0;       /* Rounded top corners */
+  cursor: pointer;
+  white-space: nowrap;              /* Keep tab text on one line */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;                         /* Gap between name, count, and close button */
+  font-size: 13px;
+  color: #333;
+  transition: background 0.2s;
+  margin-bottom: -2px;              /* Overlap with navigation bar */
+}
+
+/* Active tab styling - appears raised and highlighted */
+.tab-button.active {
+  background: white;                /* White background for active tab */
+  border-bottom: 2px solid white;   /* Connect with content area */
+  font-weight: 600;                 /* Bold text */
+  z-index: 1;                       /* Above other tabs */
+  box-shadow: 0 -2px 4px rgba(0,0,0,0.1);  /* Subtle shadow for depth */
+}
+
+/* Hover effect for inactive tabs */
+.tab-button:hover:not(.active) {
+  background: #d0d0d0;
+}
+
+/* Tab name text - clickable for rename functionality */
+.tab-name {
+  cursor: text;                     /* Text cursor to indicate editability */
+}
+
+/* Row count badge - shows number of rows in tab */
+.tab-row-count {
+  color: #666;                      /* Gray text */
+  font-size: 11px;
+  font-weight: normal;
+}
+
+/* Tab close button - X icon to close tab */
+.tab-close-btn {
+  color: #666;
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0;                       /* Hidden by default */
+  transition: opacity 0.2s;
+  margin-left: 4px;
+  cursor: pointer;
+}
+
+/* Show close button on tab hover */
+.tab-button:hover .tab-close-btn {
+  opacity: 0.7;
+}
+
+/* Close button hover - turn red and fully visible */
+.tab-close-btn:hover {
+  color: #c00;                      /* Red on hover */
+  opacity: 1 !important;
+}
+
+/* ===== ADD TAB BUTTON ===== */
+
+/* Button to create new tabs - green action button */
+.btn-add-tab {
+  background: #4CAF50;              /* Green background */
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* Add tab button hover effect */
+.btn-add-tab:hover:not(:disabled) {
+  background: #45a049;              /* Darker green on hover */
+}
+
+/* Disabled add tab button styling */
+.btn-add-tab:disabled {
+  background: #ccc;                 /* Gray when disabled */
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ===== TAB RENAME INPUT ===== */
+
+/* Inline input field for renaming tabs
+   Appears when user double-clicks a tab */
+.tab-rename-input {
+  background: white;
+  border: 2px solid #4CAF50;        /* Green border to indicate edit mode */
+  border-radius: 2px;
+  padding: 2px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  min-width: 60px;
+  max-width: 150px;
+}
+
+/* Focus state for rename input - emphasized border */
+.tab-rename-input:focus {
+  border-color: #45a049;            /* Darker green when focused */
+  box-shadow: 0 0 3px rgba(69, 160, 73, 0.5);  /* Subtle glow effect */
+}
+
+/* ===== ROW COUNT WARNING ICON ===== */
+
+/* Warning icon displayed when row count exceeds threshold
+   Orange hexagon with exclamation mark to alert users */
+#row_warning_icon .warning-hexagon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 36px !important;
+  height: 36px !important;
+  background: #ff9800 !important;               /* Orange warning color */
+  background-color: #ff9800 !important;
+  color: #ffffff !important;                    /* White text/icon */
+  font-weight: bold !important;
+  font-size: 24px !important;                   /* Large exclamation mark */
+  font-family: Arial, sans-serif !important;
+  line-height: 36px !important;
+  border-radius: 6px !important;                /* Rounded corners */
+  cursor: help !important;                      /* Cursor indicates more info available */
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;  /* Subtle shadow */
+  transition: all 0.2s ease !important;
+  border: none !important;
+  text-decoration: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  vertical-align: middle !important;
+  z-index: 100 !important;
+}
+
+/* Warning icon hover effect - darker orange and larger */
+#row_warning_icon .warning-hexagon:hover {
+  background: #f57c00 !important;               /* Darker orange on hover */
+  background-color: #f57c00 !important;
+  color: #ffffff !important;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.3) !important;  /* Stronger shadow */
+  transform: scale(1.08) !important;            /* Slightly enlarge */
+}
+
+/* ===== LOADING SCREEN ===== */
+
+/* Full-screen loading overlay displayed during app initialization
+   Covers entire viewport with logo and animated loading text */
+#loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #ffffff;        /* White background */
+  z-index: 9999;                    /* Above all other content */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  transition: opacity 0.5s ease-out;  /* Smooth fade-out transition */
+}
+
+/* Fade-out class applied when loading completes */
+#loading-screen.fade-out {
+  opacity: 0;
+}
+
+/* Container for loading elements - centered vertically and horizontally */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Application logo - pulses during loading */
+.loading-logo {
+  max-width: 250px;
+  height: auto;
+  margin-bottom: 30px;
+  animation: pulse 2s ease-in-out infinite;  /* Continuous pulse animation */
+}
+
+/* Pulse animation for logo - fades in and out */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }              /* Fade to 70% opacity at midpoint */
+}
+
+/* Loading text with animated dots
+   Shows "Loading" with cycling number of dots (0-5) */
+#loading-text {
+  color: #000000;
+  font-size: 28px;
+  font-weight: 300;                  /* Light weight for modern look */
+  letter-spacing: 2px;               /* Spaced letters */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  min-width: 180px;                  /* Reserve space for dots */
+  text-align: left;
+}
+
+/* Animated dots using CSS animation - runs on GPU, won't be blocked by main thread */
+#loading-text::after {
+  content: '';
+  animation: loadingDots 2.5s steps(5, end) infinite;
+  display: inline-block;
+  width: 40px;  /* Reserve space for dots */
+}
+
+/* CSS-only loading dots animation - cycles through 0-4 dots
+   This runs on the GPU compositor thread, so it won't freeze even when JS is blocked */
+@keyframes loadingDots {
+  0%   { content: ''; }
+  20%  { content: '.'; }
+  40%  { content: '..'; }
+  60%  { content: '...'; }
+  80%  { content: '....'; }
+  100% { content: ''; }
+}
+
+/* ===== LOADING OVERLAY (STEP 3) ===== */
+
+/* Loading overlay for table updates */
+.table-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.table-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #4A90E2;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Small inline spinner for buttons */
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* ============================================================================
+   STEP 5: PAGINATION CONTROLS (for large datasets > 500 rows)
+   ============================================================================ */
+
+/* DataTables pagination wrapper */
+.dataTables_wrapper .dataTables_paginate {
+  padding: 10px 0;
+  text-align: center;
+}
+
+/* Pagination buttons */
+.dataTables_wrapper .dataTables_paginate .paginate_button {
+  padding: 5px 12px;
+  margin: 0 2px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  background: white;
+  color: #333;
+  cursor: pointer;
+  display: inline-block;
+  transition: all 0.2s;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+  background: #f5f5f5;
+  border-color: #999;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button.current {
+  background: #337ab7;
+  color: white;
+  border-color: #337ab7;
+  font-weight: bold;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button.disabled {
+  color: #999;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button.disabled:hover {
+  background: white;
+  border-color: #ddd;
+}
+
+/* Length menu (rows per page selector) */
+.dataTables_wrapper .dataTables_length {
+  padding: 10px 0;
+  display: inline-block;
+}
+
+.dataTables_wrapper .dataTables_length select {
+  padding: 5px 10px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  margin: 0 5px;
+  background: white;
+}
+
+/* Info text (showing X to Y of Z entries) */
+.dataTables_wrapper .dataTables_info {
+  padding: 10px 0;
+  display: inline-block;
+  margin-left: 20px;
+  color: #666;
+  font-size: 14px;
+}
+
+/* Render mode badge (Step 5) - Compact icon version */
+#render_mode_badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+#render_mode_badge:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+#render_mode_badge span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* ===================================================================
+   KEYBOARD SHORTCUTS STYLES
+   Visual feedback and toast notifications for keyboard shortcuts
+   =================================================================== */
+
+/* Button animation when triggered by keyboard shortcut */
+.shortcut-triggered {
+    animation: shortcut-pulse 0.3s ease-out;
+    transform: scale(1);
+}
+
+@keyframes shortcut-pulse {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.7);
+    }
+    50% {
+        transform: scale(1.05);
+        box-shadow: 0 0 0 10px rgba(33, 150, 243, 0);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(33, 150, 243, 0);
+    }
+}
+
+/* Toast notification for shortcut feedback */
+.shortcut-toast {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 14px;
+    z-index: 10000;
+    opacity: 0;
+    transform: translateX(400px);
+    transition: all 0.3s ease-out;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.shortcut-toast.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Screen reader only content (for accessibility) */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+/* Keyboard shortcut hints in tooltips/buttons */
+.shortcut-hint {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.15);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Courier New', 'Consolas', monospace;
+    font-size: 11px;
+    margin-left: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    opacity: 0.8;
+}
+
+/* Keyboard key display (for shortcuts modal) */
+kbd {
+    background: linear-gradient(to bottom, #f9f9f9 0%, #e0e0e0 100%);
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2), 0 0 0 1px #fff inset;
+    color: #333;
+    display: inline-block;
+    font-family: 'Courier New', 'Consolas', monospace;
+    font-size: 12px;
+    font-weight: bold;
+    line-height: 1.4;
+    margin: 0 2px;
+    padding: 2px 8px;
+    white-space: nowrap;
+}
+
+/* Shortcut category sections in modal */
+.shortcut-category {
+    margin-bottom: 30px;
+}
+
+.shortcut-category h4 {
+    color: #2196F3;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #E3F2FD;
+    font-weight: 600;
+}
+
+.shortcut-category h4 i {
+    margin-right: 8px;
+}
+
+/* Shortcut table styling */
+.shortcut-row {
+    transition: background-color 0.2s ease;
+}
+
+.shortcut-row:hover {
+    background-color: #f5f5f5 !important;
+}
+
+.shortcut-row.disabled {
+    opacity: 0.5;
+}
+
+.shortcut-row kbd {
+    font-size: 11px;
+}
+
+/* Search box in shortcuts modal */
+#shortcut-search {
+    margin-bottom: 20px;
+    border: 2px solid #2196F3;
+    border-radius: 8px;
+    padding: 10px 15px;
+    font-size: 14px;
+    width: 100%;
+    transition: all 0.3s ease;
+}
+
+#shortcut-search:focus {
+    outline: none;
+    border-color: #1976D2;
+    box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+}
+
+/* Badge styling for shortcut status */
+.badge {
+    display: inline-block;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 4px;
+}
+
+.badge-success {
+    background-color: #28a745;
+    color: white;
+}
+
+.badge-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.badge-warning {
+    background-color: #ffc107;
+    color: #212529;
+}
+

@@ -1,0 +1,54 @@
+<div style="text-align: center; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;">
+  <img src="img/logo.png" alt="Epic2Castor logo" style="max-width: 200px; margin-bottom: 20px;" />
+  <h4>Epic2Castor Data Mapping Application</h4>
+  <p style="color: #666; margin-bottom: 30px;">
+    Interactive Shiny application for mapping EPIC hospital data to Castor EDC
+  </p>
+
+  <hr />
+
+  <div style="text-align: left;">
+    <p><strong>Key Features:</strong></p>
+    <ul>
+      <li>Excel-like spreadsheet interface for data mapping with tab-based organization</li>
+      <li>Copy/paste functionality with automatic handling of related checkbox &amp; radiobutton data</li>
+      <li>Auto-fill intelligence using medical dictionary, DeepL / MyMemory translation APIs, fuzzy matching, and optional ML predictions</li>
+      <li>Import Wizard with multi-format support (CSV, Excel, TSV), sheet selection, and reusable mapping templates</li>
+      <li>Study Dashboard with patient inclusion curves, per-form data completeness, and biobank sample overview</li>
+      <li>ETL pipelines for baseline, follow-up, biobank, and lab data with real-time progress monitoring</li>
+      <li>Direct Castor API integration for metadata refresh and batch data upload</li>
+      <li>SharePoint integration for remote file access and reload</li>
+      <li>Medical Dictionary Manager for maintaining English&#8211;Dutch term translations</li>
+      <li>Configurable keyboard shortcuts with performance monitoring panel</li>
+    </ul>
+  </div>
+
+  <hr />
+
+  <div style="text-align: left;">
+    <p><strong>Team:</strong></p>
+    <ul style="list-style: none; padding-left: 0;">
+      <li><strong>Supervisor:</strong> <a href="https://github.com/ArjanvL" target="_blank" rel="noopener">A. van Laarhoven</a> (<a href="https://www.radboudumc.nl/personen/arjan-van-laarhoven-4d1065425bd770bc6e9abdc666e5420c" target="_blank" rel="noopener">Radboudumc</a>)</li>
+      <li><strong>Lead developer:</strong> <a href="https://github.com/RSloot2000" target="_blank" rel="noopener">R. Sloot</a></li>
+      <li><strong>Developers / advisors:</strong>
+        <a href="https://github.com/wouterpeeters" target="_blank" rel="noopener">W. Peeters</a>,
+        <a href="https://github.com/relbersradboudumc" target="_blank" rel="noopener">R. Elbers</a>,
+        V. Aukes
+      </li>
+    </ul>
+    <p style="color: #999; font-size: 13px;">
+      Funded by <a href="https://www.zonmw.nl/en" target="_blank" rel="noopener">ZonMw</a> &#8212; clinical fellowship to A.&nbsp;van Laarhoven (09032212110006).<br />
+      <a href="https://projecten.zonmw.nl/nl/project/biosignature-stratified-immunomodulatory-treatment-patients-mycobacterial-infections" target="_blank" rel="noopener">View project on ZonMw</a>
+    </p>
+  </div>
+
+  <hr />
+
+  <div style="text-align: left;">
+    <p><strong>Technology:</strong></p>
+    <p style="color: #999; font-size: 13px;">
+      Built with R&nbsp;Shiny, DataTables, Select2, processx, and jsonlite.
+      Uses SQLite for persistent storage and the Castor EDC REST&nbsp;API for data exchange.
+    </p>
+  </div>
+</div>

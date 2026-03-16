@@ -1,0 +1,8 @@
+epic_tabel;epic_kolom;castor_tabel;castor_kolom;vaste_waarde;key;repeating;gerelateerde_mapping
+EpicExport;studiealias;baseline;Participant Id;"";TRUE;"";""
+EpicExport;"";baseline;Participant Status;Not Set;"";"";""
+EpicExport;"";baseline;Repeating data Name Custom;Visit;"";TRUE;""
+EpicExport;"";baseline;Site Abbreviation;MyCoS;"";"";""
+EpicExport;datum;baseline;date_baseline;"";TRUE;"";""
+EpicExport;waarde;baseline;"";"";"";"";waarde_checkboxes|waarde_radiobuttons
+EpicExport;Element;baseline;"";"";"";"";elements
